@@ -17,7 +17,6 @@ export function HomePage() {
     }, 100);
   };
 
-  const isConfigured = gameState?.status === 'configuring';
   const isRunning = gameState?.status === 'running';
   const canStart = connected && !isRunning;
 

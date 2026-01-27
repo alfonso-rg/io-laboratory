@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CournotConfig, GameState, RoundResult, DEFAULT_CONFIG } from '../types/game';
+import { CournotConfig, GameState, DEFAULT_CONFIG } from '../types/game';
 
 interface FirmThinking {
   firm1: boolean;
