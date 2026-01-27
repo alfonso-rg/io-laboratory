@@ -1,10 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useGameStore, calculateNashEquilibrium, calculateCooperativeEquilibrium } from '../stores/gameStore';
 import { useSocket } from '../hooks/useSocket';
 import { AVAILABLE_MODELS } from '../types/game';
+import { AdvancedSettings } from './AdvancedSettings';
 
 export function HomePage() {
   const { config, setConfig, gameState, connected, error } = useGameStore();
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const { configureGame, startGame } = useSocket();
 
   const nashEquilibrium = useMemo(() => calculateNashEquilibrium(config), [config]);
@@ -197,6 +199,27 @@ export function HomePage() {
           </div>
         </div>
       </div>
+
+      {/* Advanced Settings Toggle */}
+      <div className="mt-6">
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-2"
+          disabled={isRunning}
+        >
+          <span>{showAdvanced ? '▼' : '▶'}</span>
+          Advanced Settings
+        </button>
+      </div>
+
+      {/* Advanced Settings Panel */}
+      {showAdvanced && (
+        <AdvancedSettings
+          config={config}
+          setConfig={setConfig}
+          disabled={isRunning}
+        />
+      )}
 
       {/* Theoretical Equilibria */}
       <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
