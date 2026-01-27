@@ -1,3 +1,19 @@
+// Information disclosure options for LLMs
+export interface InformationDisclosure {
+  revealDemandFunction: boolean;      // Tell LLM about P = a - b*Q
+  revealOwnCosts: boolean;            // Tell LLM about its own cost function
+  revealRivalCosts: boolean;          // Tell LLM about rival's cost function
+  revealRivalIsLLM: boolean;          // Tell LLM that rival is also an LLM
+  describeRivalAsHuman: boolean;      // Tell LLM that rival is a human subject
+}
+
+// Communication settings between LLMs
+export interface CommunicationSettings {
+  allowCommunication: boolean;        // Allow pre-round dialogue
+  messagesPerRound: number;           // Max messages exchanged per round
+  communicationPrompt?: string;       // Custom prompt for communication phase
+}
+
 // Cournot Game Configuration
 export interface CournotConfig {
   // Inverse demand parameters: P(Q) = a - b*Q
@@ -12,10 +28,22 @@ export interface CournotConfig {
 
   // Game settings
   totalRounds: number;
+  numReplications: number;            // Number of game replications to run
 
   // LLM settings
   firm1Model: string;
   firm2Model: string;
+
+  // Information disclosure
+  firm1Info: InformationDisclosure;
+  firm2Info: InformationDisclosure;
+
+  // Communication settings
+  communication: CommunicationSettings;
+
+  // Custom prompts (optional)
+  customSystemPrompt?: string;
+  customRoundPrompt?: string;
 
   // Optional: quantity constraints
   minQuantity?: number;

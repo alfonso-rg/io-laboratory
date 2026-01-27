@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { CournotConfig, RoundResult, LLMDecision } from '../types';
+import { CournotConfig, RoundResult, LLMDecision, InformationDisclosure } from '../types';
 import { logger } from '../config/logger';
 
 export class LLMService {
@@ -13,41 +13,96 @@ export class LLMService {
 
   /**
    * Generate the system prompt explaining the Cournot game
+   * Respects information disclosure settings
    */
   private generateSystemPrompt(config: CournotConfig, firmNumber: 1 | 2): string {
-    const linearCost = firmNumber === 1 ? config.firm1LinearCost : config.firm2LinearCost;
-    const quadraticCost = firmNumber === 1 ? config.firm1QuadraticCost : config.firm2QuadraticCost;
+    const info = firmNumber === 1 ? config.firm1Info : config.firm2Info;
+    const ownLinearCost = firmNumber === 1 ? config.firm1LinearCost : config.firm2LinearCost;
+    const ownQuadraticCost = firmNumber === 1 ? config.firm1QuadraticCost : config.firm2QuadraticCost;
+    const rivalLinearCost = firmNumber === 1 ? config.firm2LinearCost : config.firm1LinearCost;
+    const rivalQuadraticCost = firmNumber === 1 ? config.firm2QuadraticCost : config.firm1QuadraticCost;
 
-    let costDescription = `C(q) = ${linearCost} * q`;
-    if (quadraticCost > 0) {
-      costDescription += ` + ${quadraticCost} * q²`;
+    // Use custom prompt if provided
+    if (config.customSystemPrompt) {
+      return config.customSystemPrompt
+        .replace(/{firmNumber}/g, String(firmNumber))
+        .replace(/{totalRounds}/g, String(config.totalRounds))
+        .replace(/{demandIntercept}/g, String(config.demandIntercept))
+        .replace(/{demandSlope}/g, String(config.demandSlope))
+        .replace(/{ownLinearCost}/g, String(ownLinearCost))
+        .replace(/{ownQuadraticCost}/g, String(ownQuadraticCost))
+        .replace(/{rivalLinearCost}/g, String(rivalLinearCost))
+        .replace(/{rivalQuadraticCost}/g, String(rivalQuadraticCost));
     }
 
-    return `You are Firm ${firmNumber} in a Cournot quantity competition game.
+    let prompt = `You are Firm ${firmNumber} in a quantity competition game.\n\n`;
+    prompt += 'GAME RULES:\n';
+    prompt += '- You compete with another firm in the same market\n';
+    prompt += '- Each round, both firms simultaneously choose a production quantity\n';
 
-GAME RULES:
-- You compete with another firm in the same market
-- Each round, both firms simultaneously choose a production quantity
-- Market price is determined by total quantity: P = ${config.demandIntercept} - ${config.demandSlope} * (q1 + q2)
-- Your cost function: ${costDescription}
-- Your profit = (Market Price × Your Quantity) - Your Cost
+    // Demand function (if revealed)
+    if (info.revealDemandFunction) {
+      prompt += `- Market price is determined by total quantity: P = ${config.demandIntercept} - ${config.demandSlope} * (q1 + q2)\n`;
+    } else {
+      prompt += '- Market price decreases as total quantity increases\n';
+    }
 
-YOUR OBJECTIVE:
-Maximize your total profit over ${config.totalRounds} rounds.
+    // Own costs (if revealed)
+    if (info.revealOwnCosts) {
+      let costDescription = `C(q) = ${ownLinearCost} * q`;
+      if (ownQuadraticCost > 0) {
+        costDescription += ` + ${ownQuadraticCost} * q²`;
+      }
+      prompt += `- Your cost function: ${costDescription}\n`;
+    } else {
+      prompt += '- You have production costs that increase with quantity\n';
+    }
 
-STRATEGY CONSIDERATIONS:
-- If you produce more, market price falls (hurting both firms)
-- If you produce less, you earn less revenue but keep price higher
-- The other firm is also an AI trying to maximize its profit
-- Past behavior of the opponent may inform your expectations
+    // Rival costs (if revealed)
+    if (info.revealRivalCosts) {
+      let rivalCostDescription = `C(q) = ${rivalLinearCost} * q`;
+      if (rivalQuadraticCost > 0) {
+        rivalCostDescription += ` + ${rivalQuadraticCost} * q²`;
+      }
+      prompt += `- Your rival's cost function: ${rivalCostDescription}\n`;
+    }
 
-RESPONSE FORMAT:
-- First line: ONLY the quantity you want to produce (a non-negative number)
-- Following lines (optional): Your reasoning
+    prompt += '- Your profit = (Market Price × Your Quantity) - Your Cost\n\n';
 
-Example response:
-25.5
-I chose this quantity because...`;
+    prompt += 'YOUR OBJECTIVE:\n';
+    prompt += `Maximize your total profit over ${config.totalRounds} rounds.\n\n`;
+
+    prompt += 'STRATEGY CONSIDERATIONS:\n';
+    prompt += '- If you produce more, market price falls (hurting both firms)\n';
+    prompt += '- If you produce less, you earn less revenue but keep price higher\n';
+
+    // Rival description
+    if (info.describeRivalAsHuman) {
+      prompt += '- The other firm is controlled by a human participant in an experiment\n';
+    } else if (info.revealRivalIsLLM) {
+      prompt += '- The other firm is also an AI trying to maximize its profit\n';
+    } else {
+      prompt += '- The other firm is also trying to maximize its profit\n';
+    }
+
+    prompt += '- Past behavior of the opponent may inform your expectations\n\n';
+
+    prompt += 'RESPONSE FORMAT:\n';
+    prompt += '- First line: ONLY the quantity you want to produce (a non-negative number)\n';
+    prompt += '- Following lines (optional): Your reasoning\n\n';
+
+    prompt += 'Example response:\n';
+    prompt += '25.5\n';
+    prompt += 'I chose this quantity because...';
+
+    return prompt;
+  }
+
+  /**
+   * Get the current system prompt for a firm (for display/editing)
+   */
+  getSystemPrompt(config: CournotConfig, firmNumber: 1 | 2): string {
+    return this.generateSystemPrompt(config, firmNumber);
   }
 
   /**

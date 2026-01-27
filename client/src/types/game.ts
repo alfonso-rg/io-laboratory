@@ -1,3 +1,19 @@
+// Information disclosure options for LLMs
+export interface InformationDisclosure {
+  revealDemandFunction: boolean;
+  revealOwnCosts: boolean;
+  revealRivalCosts: boolean;
+  revealRivalIsLLM: boolean;
+  describeRivalAsHuman: boolean;
+}
+
+// Communication settings between LLMs
+export interface CommunicationSettings {
+  allowCommunication: boolean;
+  messagesPerRound: number;
+  communicationPrompt?: string;
+}
+
 // Cournot Game Configuration
 export interface CournotConfig {
   demandIntercept: number;  // a
@@ -7,8 +23,14 @@ export interface CournotConfig {
   firm2LinearCost: number;  // c2
   firm2QuadraticCost: number; // d2
   totalRounds: number;
+  numReplications: number;
   firm1Model: string;
   firm2Model: string;
+  firm1Info: InformationDisclosure;
+  firm2Info: InformationDisclosure;
+  communication: CommunicationSettings;
+  customSystemPrompt?: string;
+  customRoundPrompt?: string;
   minQuantity?: number;
   maxQuantity?: number;
 }
@@ -89,6 +111,21 @@ export const AVAILABLE_MODELS = [
   { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
 ];
 
+// Default information disclosure (full information)
+export const DEFAULT_INFO_DISCLOSURE: InformationDisclosure = {
+  revealDemandFunction: true,
+  revealOwnCosts: true,
+  revealRivalCosts: false,
+  revealRivalIsLLM: true,
+  describeRivalAsHuman: false,
+};
+
+// Default communication settings (no communication)
+export const DEFAULT_COMMUNICATION: CommunicationSettings = {
+  allowCommunication: false,
+  messagesPerRound: 0,
+};
+
 // Default configuration
 export const DEFAULT_CONFIG: CournotConfig = {
   demandIntercept: 100,  // a
@@ -98,6 +135,10 @@ export const DEFAULT_CONFIG: CournotConfig = {
   firm2LinearCost: 10,   // c2
   firm2QuadraticCost: 0, // d2
   totalRounds: 10,
+  numReplications: 1,
   firm1Model: 'gpt-4o-mini',
   firm2Model: 'gpt-4o-mini',
+  firm1Info: { ...DEFAULT_INFO_DISCLOSURE },
+  firm2Info: { ...DEFAULT_INFO_DISCLOSURE },
+  communication: { ...DEFAULT_COMMUNICATION },
 };
