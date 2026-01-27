@@ -15,11 +15,22 @@ import {
 } from './types';
 
 const PORT = process.env.PORT || 3001;
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+
+// Parse allowed origins from environment or use defaults
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  ...(CLIENT_URL ? [CLIENT_URL] : []),
+];
 
 async function main() {
   // Create Express app
   const app = express();
-  app.use(cors());
+  app.use(cors({
+    origin: allowedOrigins,
+    credentials: true,
+  }));
   app.use(express.json());
 
   // HTTP server
@@ -33,8 +44,9 @@ async function main() {
     SocketData
   >(httpServer, {
     cors: {
-      origin: ['http://localhost:5173', 'http://localhost:3000'],
+      origin: allowedOrigins,
       methods: ['GET', 'POST'],
+      credentials: true,
     },
   });
 
