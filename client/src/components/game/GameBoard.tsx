@@ -14,10 +14,11 @@ export function GameBoard() {
     );
   }
 
-  const { config, rounds, nashEquilibrium, currentRound, status } = gameState;
+  const { config, rounds, nashEquilibrium, currentRound, currentReplication, replications, status } = gameState;
   const isRunning = status === 'running';
   const isPaused = status === 'paused';
   const isCompleted = status === 'completed';
+  const numReplications = config.numReplications || 1;
 
   // Calculate cumulative profits
   const cumulativeProfits = rounds.reduce(
@@ -35,6 +36,9 @@ export function GameBoard() {
         <div>
           <h1 className="text-2xl font-bold">Cournot Competition</h1>
           <p className="text-gray-600">
+            {numReplications > 1 && (
+              <span className="font-medium">Replication {currentReplication} of {numReplications} - </span>
+            )}
             Round {currentRound} of {config.totalRounds}
           </p>
         </div>
@@ -223,6 +227,47 @@ export function GameBoard() {
                     {nashEquilibrium.firm2Profit.toFixed(2)}
                   </td>
                 </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Completed Replications Summary */}
+      {replications && replications.length > 0 && (
+        <div className="bg-white p-6 rounded-lg shadow mt-6">
+          <h2 className="text-xl font-semibold mb-4">Completed Replications</h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-4 py-2 text-left">Rep #</th>
+                  <th className="px-4 py-2 text-right text-blue-600">Avg q1</th>
+                  <th className="px-4 py-2 text-right text-red-600">Avg q2</th>
+                  <th className="px-4 py-2 text-right">Avg Price</th>
+                  <th className="px-4 py-2 text-right text-blue-600">Total Profit 1</th>
+                  <th className="px-4 py-2 text-right text-red-600">Total Profit 2</th>
+                </tr>
+              </thead>
+              <tbody>
+                {replications.map((rep) => (
+                  <tr key={rep.replicationNumber} className="border-b hover:bg-gray-50">
+                    <td className="px-4 py-2">{rep.replicationNumber}</td>
+                    <td className="px-4 py-2 text-right text-blue-600">
+                      {rep.summary.avgFirm1Quantity.toFixed(2)}
+                    </td>
+                    <td className="px-4 py-2 text-right text-red-600">
+                      {rep.summary.avgFirm2Quantity.toFixed(2)}
+                    </td>
+                    <td className="px-4 py-2 text-right">{rep.summary.avgMarketPrice.toFixed(2)}</td>
+                    <td className="px-4 py-2 text-right text-blue-600">
+                      {rep.summary.totalFirm1Profit.toFixed(2)}
+                    </td>
+                    <td className="px-4 py-2 text-right text-red-600">
+                      {rep.summary.totalFirm2Profit.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

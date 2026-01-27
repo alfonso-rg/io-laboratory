@@ -4,7 +4,7 @@ import {
   CournotConfig,
   GameState,
   RoundResult,
-  NashEquilibrium,
+  ReplicationResult,
   ServerToClientEvents,
   ClientToServerEvents,
 } from '../types';
@@ -43,7 +43,9 @@ export class CournotService {
       status: 'configuring',
       config,
       currentRound: 0,
+      currentReplication: 0,
       rounds: [],
+      replications: [],
       nashEquilibrium,
       cooperativeEquilibrium,
     };
@@ -52,6 +54,7 @@ export class CournotService {
       config,
       nashEquilibrium,
       cooperativeEquilibrium,
+      numReplications: config.numReplications,
     });
 
     return this.gameState;
@@ -118,28 +121,92 @@ export class CournotService {
   }
 
   /**
-   * Run the game loop
+   * Run the game loop with multiple replications
    */
   private async runGame(): Promise<void> {
     if (!this.gameState) return;
 
-    const { config, rounds } = this.gameState;
-    const startRound = this.gameState.currentRound + 1;
+    const { config } = this.gameState;
+    const numReplications = config.numReplications || 1;
+    const startReplication = this.gameState.currentReplication || 1;
 
-    for (let round = startRound; round <= config.totalRounds; round++) {
+    for (let replication = startReplication; replication <= numReplications; replication++) {
       if (this.isPaused) {
         logger.info('Game loop paused');
         return;
       }
 
-      await this.playRound(round);
+      // Start new replication
+      this.gameState.currentReplication = replication;
+      this.gameState.currentRound = 0;
+      this.gameState.rounds = [];
 
-      // Small delay between rounds for UI updates
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      const replicationStartTime = new Date();
+
+      this.io.emit('replication-started', {
+        replicationNumber: replication,
+        totalReplications: numReplications,
+      });
+      this.io.emit('game-state', this.gameState);
+
+      logger.info(`Starting replication ${replication} of ${numReplications}`);
+
+      // Run all rounds for this replication
+      for (let round = 1; round <= config.totalRounds; round++) {
+        if (this.isPaused) {
+          logger.info('Game loop paused');
+          return;
+        }
+
+        await this.playRound(round);
+
+        // Small delay between rounds for UI updates
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+
+      // Save replication result
+      const replicationResult: ReplicationResult = {
+        replicationNumber: replication,
+        rounds: [...this.gameState.rounds],
+        summary: this.calculateReplicationSummary(this.gameState.rounds),
+        startedAt: replicationStartTime,
+        completedAt: new Date(),
+      };
+
+      this.gameState.replications.push(replicationResult);
+      this.io.emit('replication-complete', replicationResult);
+
+      logger.info(`Replication ${replication} complete`, {
+        summary: replicationResult.summary,
+      });
+
+      // Delay between replications
+      if (replication < numReplications) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
     }
 
-    // Game completed
+    // All replications completed
     await this.completeGame();
+  }
+
+  /**
+   * Calculate summary for a replication
+   */
+  private calculateReplicationSummary(rounds: RoundResult[]) {
+    const totalFirm1Profit = rounds.reduce((sum, r) => sum + r.firm1Profit, 0);
+    const totalFirm2Profit = rounds.reduce((sum, r) => sum + r.firm2Profit, 0);
+    const avgFirm1Quantity = rounds.reduce((sum, r) => sum + r.firm1Quantity, 0) / rounds.length;
+    const avgFirm2Quantity = rounds.reduce((sum, r) => sum + r.firm2Quantity, 0) / rounds.length;
+    const avgMarketPrice = rounds.reduce((sum, r) => sum + r.marketPrice, 0) / rounds.length;
+
+    return {
+      totalFirm1Profit,
+      totalFirm2Profit,
+      avgFirm1Quantity,
+      avgFirm2Quantity,
+      avgMarketPrice,
+    };
   }
 
   /**

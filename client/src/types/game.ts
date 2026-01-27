@@ -59,6 +59,21 @@ export interface NashEquilibrium {
   firm2Profit: number;
 }
 
+// Result of a single replication (one full game)
+export interface ReplicationResult {
+  replicationNumber: number;
+  rounds: RoundResult[];
+  summary: {
+    totalFirm1Profit: number;
+    totalFirm2Profit: number;
+    avgFirm1Quantity: number;
+    avgFirm2Quantity: number;
+    avgMarketPrice: number;
+  };
+  startedAt: Date;
+  completedAt: Date;
+}
+
 // Cooperative equilibrium (multiplant monopoly)
 export interface CooperativeEquilibrium {
   firm1Quantity: number;
@@ -76,7 +91,9 @@ export interface GameState {
   status: 'idle' | 'configuring' | 'running' | 'paused' | 'completed';
   config: CournotConfig;
   currentRound: number;
+  currentReplication: number;
   rounds: RoundResult[];
+  replications: ReplicationResult[];
   nashEquilibrium: NashEquilibrium;
   cooperativeEquilibrium: CooperativeEquilibrium;
   startedAt?: Date;
@@ -95,6 +112,8 @@ export interface ClientToServerEvents {
 // Socket events from server to client
 export interface ServerToClientEvents {
   'game-state': (state: GameState) => void;
+  'replication-started': (data: { replicationNumber: number; totalReplications: number }) => void;
+  'replication-complete': (result: ReplicationResult) => void;
   'round-started': (roundNumber: number) => void;
   'firm-decision': (data: { firm: 1 | 2; quantity: number; reasoning?: string }) => void;
   'round-complete': (result: RoundResult) => void;
