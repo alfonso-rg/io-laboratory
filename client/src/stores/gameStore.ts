@@ -8,7 +8,6 @@ import {
   LimitPricingAnalysis,
   getNumFirms,
   getGamma,
-  getCompetitionMode,
   getFirmConfig,
 } from '../types/game';
 

@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
   useGameStore,
-  calculateNashEquilibrium,
   calculateCooperativeEquilibrium,
   calculateNPolyCournotEquilibrium,
   calculateLimitPricingAnalysis,
@@ -10,9 +9,7 @@ import { useSocket } from '../hooks/useSocket';
 import {
   AVAILABLE_MODELS,
   COMPETITION_MODES,
-  FIRM_COLORS,
   FIRM_COLOR_CLASSES,
-  DEFAULT_INFO_DISCLOSURE,
   getNumFirms,
   getGamma,
   getCompetitionMode,
@@ -32,7 +29,6 @@ export function HomePage() {
   const competitionMode = getCompetitionMode(config);
 
   // Legacy equilibrium (for duopoly backward compatibility)
-  const nashEquilibrium = useMemo(() => calculateNashEquilibrium(config), [config]);
   const cooperativeEquilibrium = useMemo(() => calculateCooperativeEquilibrium(config), [config]);
 
   // Extended N-poly equilibrium
