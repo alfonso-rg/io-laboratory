@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { CournotConfig, InformationDisclosure } from '../types/game';
+import {
+  CournotConfig,
+  InformationDisclosure,
+  FIRM_COLORS,
+  getNumFirms,
+  DEFAULT_INFO_DISCLOSURE,
+} from '../types/game';
 
 interface AdvancedSettingsProps {
   config: CournotConfig;
@@ -9,17 +15,136 @@ interface AdvancedSettingsProps {
 
 export function AdvancedSettings({ config, setConfig, disabled }: AdvancedSettingsProps) {
   const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const numFirms = getNumFirms(config);
 
-  const updateFirm1Info = (updates: Partial<InformationDisclosure>) => {
-    setConfig({
-      firm1Info: { ...config.firm1Info, ...updates },
-    });
+  // Update firm info - works for both legacy (firm 1, 2) and new (firms array) format
+  const updateFirmInfo = (firmId: number, updates: Partial<InformationDisclosure>) => {
+    if (firmId === 1) {
+      setConfig({
+        firm1Info: { ...config.firm1Info, ...updates },
+      });
+    } else if (firmId === 2) {
+      setConfig({
+        firm2Info: { ...config.firm2Info, ...updates },
+      });
+    }
+
+    // Also update in firms array if it exists
+    if (config.firms && config.firms.length >= firmId) {
+      const updatedFirms = [...config.firms];
+      updatedFirms[firmId - 1] = {
+        ...updatedFirms[firmId - 1],
+        info: { ...updatedFirms[firmId - 1].info, ...updates },
+      };
+      setConfig({ firms: updatedFirms });
+    }
   };
 
-  const updateFirm2Info = (updates: Partial<InformationDisclosure>) => {
+  // Get firm info for display
+  const getFirmInfo = (firmId: number): InformationDisclosure => {
+    if (config.firms && config.firms.length >= firmId) {
+      return config.firms[firmId - 1].info;
+    }
+    if (firmId === 1) return config.firm1Info;
+    if (firmId === 2) return config.firm2Info;
+    return DEFAULT_INFO_DISCLOSURE;
+  };
+
+  // Render info disclosure checkboxes for a single firm
+  const renderFirmInfoDisclosure = (firmId: number) => {
+    const firmInfo = getFirmInfo(firmId);
+    const firmColor = FIRM_COLORS[firmId - 1];
+
+    return (
+      <div key={firmId} className="border rounded-lg p-4" style={{ borderColor: firmColor }}>
+        <div className="flex items-center gap-2 mb-3">
+          <div
+            className="w-4 h-4 rounded-full"
+            style={{ backgroundColor: firmColor }}
+          ></div>
+          <h3 className="font-semibold" style={{ color: firmColor }}>
+            Firm {firmId}
+          </h3>
+        </div>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={firmInfo.revealDemandFunction}
+              onChange={(e) => updateFirmInfo(firmId, { revealDemandFunction: e.target.checked })}
+              disabled={disabled}
+              className="rounded"
+            />
+            <span className="text-sm">Reveal demand function (P = a - bQ)</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={firmInfo.revealOwnCosts}
+              onChange={(e) => updateFirmInfo(firmId, { revealOwnCosts: e.target.checked })}
+              disabled={disabled}
+              className="rounded"
+            />
+            <span className="text-sm">Reveal own cost function</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={firmInfo.revealRivalCosts}
+              onChange={(e) => updateFirmInfo(firmId, { revealRivalCosts: e.target.checked })}
+              disabled={disabled}
+              className="rounded"
+            />
+            <span className="text-sm">Reveal rivals' cost functions</span>
+          </label>
+          <hr className="my-2" />
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={firmInfo.revealRivalIsLLM}
+              onChange={(e) => updateFirmInfo(firmId, {
+                revealRivalIsLLM: e.target.checked,
+                describeRivalAsHuman: e.target.checked ? false : firmInfo.describeRivalAsHuman
+              })}
+              disabled={disabled}
+              className="rounded"
+            />
+            <span className="text-sm">Tell that rivals are LLMs</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={firmInfo.describeRivalAsHuman}
+              onChange={(e) => updateFirmInfo(firmId, {
+                describeRivalAsHuman: e.target.checked,
+                revealRivalIsLLM: e.target.checked ? false : firmInfo.revealRivalIsLLM
+              })}
+              disabled={disabled}
+              className="rounded"
+            />
+            <span className="text-sm">Describe rivals as human subjects</span>
+          </label>
+        </div>
+      </div>
+    );
+  };
+
+  // Apply same settings to all firms
+  const applyToAllFirms = (sourceInfo: InformationDisclosure) => {
+    // Update legacy fields
     setConfig({
-      firm2Info: { ...config.firm2Info, ...updates },
+      firm1Info: { ...sourceInfo },
+      firm2Info: { ...sourceInfo },
     });
+
+    // Update firms array if exists
+    if (config.firms && config.firms.length > 0) {
+      const updatedFirms = config.firms.map(firm => ({
+        ...firm,
+        info: { ...sourceInfo },
+      }));
+      setConfig({ firms: updatedFirms });
+    }
   };
 
   return (
@@ -50,139 +175,32 @@ export function AdvancedSettings({ config, setConfig, disabled }: AdvancedSettin
 
       {/* Information Disclosure */}
       <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="text-xl font-semibold mb-4">Information Disclosure</h2>
-        <p className="text-sm text-gray-600 mb-4">
-          Control what information each LLM receives about the game
-        </p>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Firm 1 Info */}
-          <div className="border rounded-lg p-4">
-            <h3 className="font-semibold text-blue-600 mb-3">Firm 1</h3>
-            <div className="space-y-2">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.firm1Info.revealDemandFunction}
-                  onChange={(e) => updateFirm1Info({ revealDemandFunction: e.target.checked })}
-                  disabled={disabled}
-                  className="rounded"
-                />
-                <span className="text-sm">Reveal demand function (P = a - bQ)</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.firm1Info.revealOwnCosts}
-                  onChange={(e) => updateFirm1Info({ revealOwnCosts: e.target.checked })}
-                  disabled={disabled}
-                  className="rounded"
-                />
-                <span className="text-sm">Reveal own cost function</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.firm1Info.revealRivalCosts}
-                  onChange={(e) => updateFirm1Info({ revealRivalCosts: e.target.checked })}
-                  disabled={disabled}
-                  className="rounded"
-                />
-                <span className="text-sm">Reveal rival's cost function</span>
-              </label>
-              <hr className="my-2" />
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.firm1Info.revealRivalIsLLM}
-                  onChange={(e) => updateFirm1Info({
-                    revealRivalIsLLM: e.target.checked,
-                    describeRivalAsHuman: e.target.checked ? false : config.firm1Info.describeRivalAsHuman
-                  })}
-                  disabled={disabled}
-                  className="rounded"
-                />
-                <span className="text-sm">Tell that rival is an LLM</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.firm1Info.describeRivalAsHuman}
-                  onChange={(e) => updateFirm1Info({
-                    describeRivalAsHuman: e.target.checked,
-                    revealRivalIsLLM: e.target.checked ? false : config.firm1Info.revealRivalIsLLM
-                  })}
-                  disabled={disabled}
-                  className="rounded"
-                />
-                <span className="text-sm">Describe rival as human subject</span>
-              </label>
-            </div>
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h2 className="text-xl font-semibold">Information Disclosure</h2>
+            <p className="text-sm text-gray-600">
+              Control what information each LLM receives about the game
+            </p>
           </div>
+          {numFirms > 1 && (
+            <button
+              onClick={() => applyToAllFirms(getFirmInfo(1))}
+              disabled={disabled}
+              className="text-sm px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
+            >
+              Apply Firm 1 settings to all
+            </button>
+          )}
+        </div>
 
-          {/* Firm 2 Info */}
-          <div className="border rounded-lg p-4">
-            <h3 className="font-semibold text-red-600 mb-3">Firm 2</h3>
-            <div className="space-y-2">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.firm2Info.revealDemandFunction}
-                  onChange={(e) => updateFirm2Info({ revealDemandFunction: e.target.checked })}
-                  disabled={disabled}
-                  className="rounded"
-                />
-                <span className="text-sm">Reveal demand function (P = a - bQ)</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.firm2Info.revealOwnCosts}
-                  onChange={(e) => updateFirm2Info({ revealOwnCosts: e.target.checked })}
-                  disabled={disabled}
-                  className="rounded"
-                />
-                <span className="text-sm">Reveal own cost function</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.firm2Info.revealRivalCosts}
-                  onChange={(e) => updateFirm2Info({ revealRivalCosts: e.target.checked })}
-                  disabled={disabled}
-                  className="rounded"
-                />
-                <span className="text-sm">Reveal rival's cost function</span>
-              </label>
-              <hr className="my-2" />
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.firm2Info.revealRivalIsLLM}
-                  onChange={(e) => updateFirm2Info({
-                    revealRivalIsLLM: e.target.checked,
-                    describeRivalAsHuman: e.target.checked ? false : config.firm2Info.describeRivalAsHuman
-                  })}
-                  disabled={disabled}
-                  className="rounded"
-                />
-                <span className="text-sm">Tell that rival is an LLM</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.firm2Info.describeRivalAsHuman}
-                  onChange={(e) => updateFirm2Info({
-                    describeRivalAsHuman: e.target.checked,
-                    revealRivalIsLLM: e.target.checked ? false : config.firm2Info.revealRivalIsLLM
-                  })}
-                  disabled={disabled}
-                  className="rounded"
-                />
-                <span className="text-sm">Describe rival as human subject</span>
-              </label>
-            </div>
-          </div>
+        <div className={`grid gap-4 ${
+          numFirms <= 2 ? 'grid-cols-1 md:grid-cols-2' :
+          numFirms <= 4 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4' :
+          'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5'
+        }`}>
+          {Array.from({ length: numFirms }, (_, i) => i + 1).map(firmId =>
+            renderFirmInfoDisclosure(firmId)
+          )}
         </div>
       </div>
 
@@ -212,7 +230,7 @@ export function AdvancedSettings({ config, setConfig, disabled }: AdvancedSettin
                 <input
                   type="number"
                   min="1"
-                  max="10"
+                  max="20"
                   value={config.communication.messagesPerRound}
                   onChange={(e) => setConfig({
                     communication: { ...config.communication, messagesPerRound: parseInt(e.target.value) || 1 }
@@ -220,6 +238,9 @@ export function AdvancedSettings({ config, setConfig, disabled }: AdvancedSettin
                   className="w-32 px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
                   disabled={disabled}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Messages cycle through firms: 1, 2, ..., {numFirms}, 1, 2, ...
+                </p>
               </div>
             </div>
           )}
@@ -241,8 +262,8 @@ export function AdvancedSettings({ config, setConfig, disabled }: AdvancedSettin
         {showPromptEditor && (
           <div className="space-y-4">
             <p className="text-sm text-gray-600">
-              Available variables: {'{firmNumber}'}, {'{totalRounds}'}, {'{demandIntercept}'}, {'{demandSlope}'},
-              {'{ownLinearCost}'}, {'{ownQuadraticCost}'}, {'{rivalLinearCost}'}, {'{rivalQuadraticCost}'}
+              Available variables: {'{firmNumber}'}, {'{numFirms}'}, {'{totalRounds}'}, {'{demandIntercept}'}, {'{demandSlope}'},
+              {'{gamma}'}, {'{competitionMode}'}, {'{ownLinearCost}'}, {'{ownQuadraticCost}'}
             </p>
             <div>
               <label className="block text-sm font-medium mb-1">
