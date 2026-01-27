@@ -7,6 +7,9 @@ import {
   ReplicationResult,
   ServerToClientEvents,
   ClientToServerEvents,
+  getNumFirms,
+  getCompetitionMode,
+  getFirmConfig,
 } from '../types';
 import { EconomicsService } from './EconomicsService';
 import { LLMService } from './LLMService';
@@ -35,8 +38,32 @@ export class CournotService {
    * Create a new game with the given configuration
    */
   createGame(config: CournotConfig): GameState {
+    const numFirms = getNumFirms(config);
+    const mode = getCompetitionMode(config);
+
+    // Calculate legacy Nash equilibrium (always Cournot duopoly for backward compatibility)
     const nashEquilibrium = EconomicsService.calculateNashEquilibrium(config);
     const cooperativeEquilibrium = EconomicsService.calculateCooperativeEquilibrium(config);
+
+    // Calculate extended equilibria for N firms
+    let nPolyEquilibrium;
+    let bertrandEquilibrium;
+    let limitPricingAnalysis;
+
+    try {
+      // Calculate N-poly Cournot equilibrium
+      nPolyEquilibrium = EconomicsService.calculateNashCournotNFirms(config);
+
+      // Calculate Bertrand equilibrium if using Bertrand mode or for comparison
+      bertrandEquilibrium = EconomicsService.calculateNashBertrandNFirms(config);
+
+      // Calculate limit-pricing analysis (only for duopoly)
+      if (numFirms === 2) {
+        limitPricingAnalysis = EconomicsService.analyzeLimitPricing(config);
+      }
+    } catch (error) {
+      logger.warn('Could not calculate extended equilibria:', error);
+    }
 
     this.gameState = {
       gameId: uuidv4(),
@@ -48,12 +75,20 @@ export class CournotService {
       replications: [],
       nashEquilibrium,
       cooperativeEquilibrium,
+      nPolyEquilibrium,
+      bertrandEquilibrium,
+      limitPricingAnalysis,
     };
 
     logger.info(`Game created: ${this.gameState.gameId}`, {
-      config,
+      config: {
+        ...config,
+        numFirms,
+        competitionMode: mode,
+      },
       nashEquilibrium,
       cooperativeEquilibrium,
+      nPolyEquilibrium,
       numReplications: config.numReplications,
     });
 
@@ -210,17 +245,20 @@ export class CournotService {
   }
 
   /**
-   * Play a single round
+   * Play a single round (supports N firms and both competition modes)
    */
   private async playRound(roundNumber: number): Promise<void> {
     if (!this.gameState) return;
 
+    const numFirms = getNumFirms(this.gameState.config);
+    const mode = getCompetitionMode(this.gameState.config);
+
     this.gameState.currentRound = roundNumber;
     this.io.emit('round-started', roundNumber);
 
-    logger.info(`Starting round ${roundNumber}`);
+    logger.info(`Starting round ${roundNumber} (${numFirms} firms, ${mode} mode)`);
 
-    let communication: { firm: 1 | 2; message: string }[] | undefined;
+    let communication: { firm: number; message: string }[] | undefined;
 
     try {
       // Communication phase (if enabled)
@@ -233,36 +271,45 @@ export class CournotService {
       }
 
       // Notify clients that LLMs are thinking
-      this.io.emit('llm-thinking', { firm: 1, status: 'thinking' });
-      this.io.emit('llm-thinking', { firm: 2, status: 'thinking' });
+      for (let i = 1; i <= numFirms; i++) {
+        this.io.emit('llm-thinking', { firm: i, status: 'thinking' });
+      }
 
-      // Get decisions from both firms
-      const decisions = await this.llmService.getBothDecisions(
+      // Get decisions from all firms
+      const decisionsMap = await this.llmService.getAllDecisions(
         this.gameState.config,
         roundNumber,
         this.gameState.rounds
       );
 
       // Emit individual decisions
-      this.io.emit('firm-decision', {
-        firm: 1,
-        quantity: decisions.firm1.quantity,
-        reasoning: decisions.firm1.reasoning,
-      });
-      this.io.emit('firm-decision', {
-        firm: 2,
-        quantity: decisions.firm2.quantity,
-        reasoning: decisions.firm2.reasoning,
-      });
+      for (let i = 1; i <= numFirms; i++) {
+        const decision = decisionsMap.get(i);
+        if (decision) {
+          this.io.emit('firm-decision', {
+            firm: i,
+            quantity: mode === 'cournot' ? decision.quantity : undefined,
+            price: mode === 'bertrand' ? decision.quantity : undefined,  // In Bertrand, the "quantity" field holds price
+            reasoning: decision.reasoning,
+          });
+        }
+      }
 
-      // Calculate round results
-      const roundResult = EconomicsService.calculateRoundResult(
+      // Build decisions array for result calculation
+      const decisionsArray = Array.from(decisionsMap.entries()).map(([firmId, decision]) => ({
+        firmId,
+        quantity: mode === 'cournot' ? decision.quantity : undefined,
+        price: mode === 'bertrand' ? decision.quantity : undefined,
+        reasoning: decision.reasoning,
+        systemPrompt: decision.systemPrompt,
+        roundPrompt: decision.roundPrompt,
+      }));
+
+      // Calculate round results using N-poly method
+      const roundResult = EconomicsService.calculateNPolyRoundResult(
         roundNumber,
-        decisions.firm1.quantity,
-        decisions.firm2.quantity,
-        this.gameState.config,
-        decisions.firm1.reasoning,
-        decisions.firm2.reasoning
+        decisionsArray,
+        this.gameState.config
       );
 
       // Add communication to result if it occurred
@@ -278,9 +325,10 @@ export class CournotService {
       this.io.emit('game-state', this.gameState);
 
       logger.info(`Round ${roundNumber} complete`, {
-        firm1Quantity: roundResult.firm1Quantity,
-        firm2Quantity: roundResult.firm2Quantity,
-        price: roundResult.marketPrice,
+        numFirms,
+        mode,
+        totalQuantity: roundResult.totalQuantity,
+        avgPrice: roundResult.marketPrice,
         hadCommunication: !!communication,
       });
     } catch (error) {
@@ -291,19 +339,21 @@ export class CournotService {
   }
 
   /**
-   * Run communication phase for a round
+   * Run communication phase for a round (supports N firms)
    */
   private async runCommunicationPhase(
     roundNumber: number
-  ): Promise<{ firm: 1 | 2; message: string }[]> {
+  ): Promise<{ firm: number; message: string }[]> {
     if (!this.gameState) return [];
 
     const config = this.gameState.config;
+    const numFirms = getNumFirms(config);
     const messagesPerRound = config.communication.messagesPerRound || 2;
-    const conversation: { firm: 1 | 2; message: string }[] = [];
+    const conversation: { firm: number; message: string }[] = [];
 
     for (let i = 0; i < messagesPerRound; i++) {
-      const currentFirm: 1 | 2 = (i % 2 === 0) ? 1 : 2;
+      // Cycle through firms: 1, 2, ..., n, 1, 2, ...
+      const currentFirm = (i % numFirms) + 1;
 
       this.io.emit('llm-thinking', { firm: currentFirm, status: 'communicating' });
 

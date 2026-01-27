@@ -1,10 +1,19 @@
 import { create } from 'zustand';
-import { CournotConfig, GameState, CommunicationMessage, DEFAULT_CONFIG } from '../types/game';
+import {
+  CournotConfig,
+  GameState,
+  CommunicationMessage,
+  DEFAULT_CONFIG,
+  NPolyEquilibrium,
+  LimitPricingAnalysis,
+  getNumFirms,
+  getGamma,
+  getCompetitionMode,
+  getFirmConfig,
+} from '../types/game';
 
-interface FirmThinking {
-  firm1: boolean;
-  firm2: boolean;
-}
+// Dynamic firm thinking state (supports up to 10 firms)
+type FirmThinking = Record<string, boolean>;
 
 interface GameStore {
   // Configuration
@@ -18,15 +27,12 @@ interface GameStore {
 
   // UI state
   firmThinking: FirmThinking;
-  setFirmThinking: (firm: 1 | 2, thinking: boolean) => void;
+  setFirmThinking: (firm: number, thinking: boolean) => void;
   resetFirmThinking: () => void;
 
-  // Latest decisions (for animation)
-  latestDecisions: {
-    firm1?: { quantity: number; reasoning?: string };
-    firm2?: { quantity: number; reasoning?: string };
-  };
-  setLatestDecision: (firm: 1 | 2, quantity: number, reasoning?: string) => void;
+  // Latest decisions (for animation) - supports N firms
+  latestDecisions: Record<string, { quantity: number; price?: number; reasoning?: string }>;
+  setLatestDecision: (firm: number, quantity: number, price?: number, reasoning?: string) => void;
   clearLatestDecisions: () => void;
 
   // Communication messages (current round)
@@ -54,24 +60,24 @@ export const useGameStore = create<GameStore>((set) => ({
   gameState: null,
   setGameState: (gameState) => set({ gameState }),
 
-  // UI state
-  firmThinking: { firm1: false, firm2: false },
+  // UI state - supports N firms
+  firmThinking: {},
   setFirmThinking: (firm, thinking) =>
     set((state) => ({
       firmThinking: {
         ...state.firmThinking,
-        [firm === 1 ? 'firm1' : 'firm2']: thinking,
+        [`firm${firm}`]: thinking,
       },
     })),
-  resetFirmThinking: () => set({ firmThinking: { firm1: false, firm2: false } }),
+  resetFirmThinking: () => set({ firmThinking: {} }),
 
-  // Latest decisions
+  // Latest decisions - supports N firms
   latestDecisions: {},
-  setLatestDecision: (firm, quantity, reasoning) =>
+  setLatestDecision: (firm, quantity, price, reasoning) =>
     set((state) => ({
       latestDecisions: {
         ...state.latestDecisions,
-        [firm === 1 ? 'firm1' : 'firm2']: { quantity, reasoning },
+        [`firm${firm}`]: { quantity, price, reasoning },
       },
     })),
   clearLatestDecisions: () => set({ latestDecisions: {} }),
@@ -199,5 +205,162 @@ export function calculateCooperativeEquilibrium(config: CournotConfig) {
     firm1Profit,
     firm2Profit,
     totalProfit,
+  };
+}
+
+// ============================================
+// N-FIRM EQUILIBRIUM CALCULATIONS
+// ============================================
+
+/**
+ * Solve a linear system Ax = b using Gaussian elimination
+ */
+function solveLinearSystem(A: number[][], b: number[]): number[] | null {
+  const n = A.length;
+  const aug: number[][] = A.map((row, i) => [...row, b[i]]);
+
+  for (let col = 0; col < n; col++) {
+    let maxRow = col;
+    for (let row = col + 1; row < n; row++) {
+      if (Math.abs(aug[row][col]) > Math.abs(aug[maxRow][col])) {
+        maxRow = row;
+      }
+    }
+    [aug[col], aug[maxRow]] = [aug[maxRow], aug[col]];
+    if (Math.abs(aug[col][col]) < 1e-10) return null;
+
+    for (let row = col + 1; row < n; row++) {
+      const factor = aug[row][col] / aug[col][col];
+      for (let j = col; j <= n; j++) {
+        aug[row][j] -= factor * aug[col][j];
+      }
+    }
+  }
+
+  const x = new Array(n).fill(0);
+  for (let i = n - 1; i >= 0; i--) {
+    x[i] = aug[i][n];
+    for (let j = i + 1; j < n; j++) {
+      x[i] -= aug[i][j] * x[j];
+    }
+    x[i] /= aug[i][i];
+  }
+
+  return x;
+}
+
+/**
+ * Calculate N-poly Cournot equilibrium
+ */
+export function calculateNPolyCournotEquilibrium(config: CournotConfig): NPolyEquilibrium | null {
+  const { demandIntercept: a, demandSlope: b } = config;
+  const gamma = getGamma(config);
+  const numFirms = getNumFirms(config);
+
+  const A: number[][] = [];
+  const B: number[] = [];
+
+  for (let i = 0; i < numFirms; i++) {
+    const firmConfig = getFirmConfig(config, i + 1);
+    const c_i = firmConfig.linearCost;
+    const d_i = firmConfig.quadraticCost;
+    const alpha_i = a - c_i;
+    B.push(alpha_i);
+
+    const row: number[] = [];
+    for (let j = 0; j < numFirms; j++) {
+      if (i === j) {
+        row.push(2 * (b + d_i));
+      } else {
+        row.push(gamma * b);
+      }
+    }
+    A.push(row);
+  }
+
+  const solution = solveLinearSystem(A, B);
+  if (!solution) return null;
+
+  const quantities = solution.map(q => Math.max(0, q));
+  const firms: NPolyEquilibrium['firms'] = [];
+  const marketPrices: number[] = [];
+  let totalQuantity = 0;
+  let totalProfit = 0;
+
+  for (let i = 0; i < numFirms; i++) {
+    const q_i = quantities[i];
+    totalQuantity += q_i;
+
+    let otherQSum = 0;
+    for (let j = 0; j < numFirms; j++) {
+      if (j !== i) otherQSum += quantities[j];
+    }
+    const price_i = Math.max(0, a - b * (q_i + gamma * otherQSum));
+    marketPrices.push(price_i);
+
+    const firmConfig = getFirmConfig(config, i + 1);
+    const cost_i = firmConfig.linearCost * q_i + firmConfig.quadraticCost * q_i * q_i;
+    const profit_i = price_i * q_i - cost_i;
+    totalProfit += profit_i;
+
+    firms.push({ firmId: i + 1, quantity: q_i, profit: profit_i });
+  }
+
+  return {
+    competitionMode: 'cournot',
+    firms,
+    totalQuantity,
+    marketPrices,
+    avgMarketPrice: marketPrices.reduce((s, p) => s + p, 0) / numFirms,
+    totalProfit,
+  };
+}
+
+/**
+ * Calculate limit-pricing analysis (duopoly only)
+ */
+export function calculateLimitPricingAnalysis(config: CournotConfig): LimitPricingAnalysis | null {
+  const numFirms = getNumFirms(config);
+  if (numFirms !== 2) return null;
+
+  const { demandIntercept: a } = config;
+  const gamma = getGamma(config);
+
+  const firm1 = getFirmConfig(config, 1);
+  const firm2 = getFirmConfig(config, 2);
+
+  const alpha1 = a - firm1.linearCost;
+  const alpha2 = a - firm2.linearCost;
+
+  const asymmetryIndex = alpha2 !== 0 ? (alpha1 - alpha2) / alpha2 : 0;
+  const limitPricingThresholdLow = 1 - gamma / (2 - gamma * gamma);
+  const limitPricingThresholdHigh = 1 - gamma / 2;
+
+  const isInLimitPricingRegion =
+    asymmetryIndex >= limitPricingThresholdLow &&
+    asymmetryIndex < limitPricingThresholdHigh;
+  const isInMonopolyRegion = asymmetryIndex >= limitPricingThresholdHigh;
+
+  let dominantFirm: number | undefined;
+  let analysisMessage: string;
+
+  if (isInMonopolyRegion) {
+    dominantFirm = alpha1 > alpha2 ? 1 : 2;
+    analysisMessage = `Monopoly region: Firm ${dominantFirm} can monopolize.`;
+  } else if (isInLimitPricingRegion) {
+    dominantFirm = alpha1 > alpha2 ? 1 : 2;
+    analysisMessage = `Limit-pricing region: Firm ${dominantFirm} can engage in limit pricing.`;
+  } else {
+    analysisMessage = 'Interior duopoly: Both firms compete actively.';
+  }
+
+  return {
+    asymmetryIndex,
+    limitPricingThresholdLow,
+    limitPricingThresholdHigh,
+    isInLimitPricingRegion,
+    isInMonopolyRegion,
+    dominantFirm,
+    analysisMessage,
   };
 }

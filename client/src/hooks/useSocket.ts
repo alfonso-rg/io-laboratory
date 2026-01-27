@@ -63,8 +63,10 @@ export function useSocket() {
       console.log(`Round ${roundNumber} started`);
       clearLatestDecisions();
       clearCommunication();
-      setFirmThinking(1, true);
-      setFirmThinking(2, true);
+      // Set all firms as thinking (up to 10)
+      for (let i = 1; i <= 10; i++) {
+        setFirmThinking(i, true);
+      }
     });
 
     socket.on('communication-started', (roundNumber) => {
@@ -86,10 +88,10 @@ export function useSocket() {
       setFirmThinking(firm, status === 'thinking' || status === 'communicating');
     });
 
-    socket.on('firm-decision', ({ firm, quantity, reasoning }) => {
-      console.log(`Firm ${firm} decided: ${quantity}`);
+    socket.on('firm-decision', ({ firm, quantity, price, reasoning }) => {
+      console.log(`Firm ${firm} decided: quantity=${quantity}, price=${price}`);
       setFirmThinking(firm, false);
-      setLatestDecision(firm, quantity, reasoning);
+      setLatestDecision(firm, quantity ?? 0, price, reasoning);
     });
 
     socket.on('round-complete', (result) => {

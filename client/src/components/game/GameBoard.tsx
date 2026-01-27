@@ -1,6 +1,13 @@
 import { useGameStore } from '../../stores/gameStore';
 import { useSocket } from '../../hooks/useSocket';
 import { QuantityChart } from './QuantityChart';
+import {
+  FIRM_COLORS,
+  FIRM_COLOR_CLASSES,
+  getNumFirms,
+  getCompetitionMode,
+  getFirmConfig,
+} from '../../types/game';
 
 export function GameBoard() {
   const { gameState, firmThinking, latestDecisions, currentCommunication } = useGameStore();
@@ -14,21 +21,27 @@ export function GameBoard() {
     );
   }
 
-  const { config, rounds, nashEquilibrium, currentRound, currentReplication, replications, status } = gameState;
+  const { config, rounds, nashEquilibrium, nPolyEquilibrium, currentRound, currentReplication, replications, status } = gameState;
   const isRunning = status === 'running';
   const isPaused = status === 'paused';
   const isCompleted = status === 'completed';
   const numReplications = config.numReplications || 1;
   const hasCommunication = config.communication?.allowCommunication;
+  const numFirms = getNumFirms(config);
+  const competitionMode = getCompetitionMode(config);
 
-  // Calculate cumulative profits
-  const cumulativeProfits = rounds.reduce(
-    (acc, round) => ({
-      firm1: acc.firm1 + round.firm1Profit,
-      firm2: acc.firm2 + round.firm2Profit,
-    }),
-    { firm1: 0, firm2: 0 }
-  );
+  // Calculate cumulative profits for all firms
+  const cumulativeProfits: Record<number, number> = {};
+  for (let i = 1; i <= numFirms; i++) {
+    cumulativeProfits[i] = rounds.reduce((acc, round) => {
+      if (round.firmResults) {
+        const firmResult = round.firmResults.find(f => f.firmId === i);
+        return acc + (firmResult?.profit ?? 0);
+      }
+      // Fallback to legacy fields
+      return acc + (i === 1 ? round.firm1Profit : i === 2 ? round.firm2Profit : 0);
+    }, 0);
+  }
 
   return (
     <div className="max-w-6xl mx-auto p-6">
@@ -87,85 +100,59 @@ export function GameBoard() {
         </span>
       </div>
 
-      {/* Firm Status Cards */}
-      <div className="grid grid-cols-2 gap-6 mb-6">
-        {/* Firm 1 */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-blue-600">Firm 1</h2>
-            <span className="text-sm text-gray-500">{config.firm1Model}</span>
-          </div>
+      {/* Firm Status Cards - Dynamic for N firms */}
+      <div className={`grid gap-4 mb-6 ${numFirms <= 2 ? 'grid-cols-2' : numFirms <= 4 ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-5'}`}>
+        {Array.from({ length: numFirms }, (_, i) => {
+          const firmId = i + 1;
+          const firmConfig = getFirmConfig(config, firmId);
+          const colorClass = FIRM_COLOR_CLASSES[i] || FIRM_COLOR_CLASSES[0];
+          const isThinking = firmThinking[`firm${firmId}`];
+          const decision = latestDecisions[`firm${firmId}`];
+          const nashQty = nPolyEquilibrium?.firms.find(f => f.firmId === firmId)?.quantity
+            ?? (firmId === 1 ? nashEquilibrium.firm1Quantity : firmId === 2 ? nashEquilibrium.firm2Quantity : 0);
 
-          {firmThinking.firm1 ? (
-            <div className="flex items-center gap-2 text-gray-500">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-              Thinking...
-            </div>
-          ) : latestDecisions.firm1 ? (
-            <div>
-              <div className="text-3xl font-bold text-blue-600">
-                q = {latestDecisions.firm1.quantity.toFixed(2)}
+          return (
+            <div key={firmId} className={`bg-white p-4 rounded-lg shadow border-l-4 ${colorClass.border}`}>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className={`text-lg font-semibold ${colorClass.text}`}>Firm {firmId}</h2>
+                <span className="text-xs text-gray-500">{firmConfig.model}</span>
               </div>
-              {latestDecisions.firm1.reasoning && (
-                <p className="mt-2 text-sm text-gray-600 line-clamp-3">
-                  {latestDecisions.firm1.reasoning}
-                </p>
+
+              {isThinking ? (
+                <div className="flex items-center gap-2 text-gray-500">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2" style={{ borderColor: FIRM_COLORS[i] }}></div>
+                  <span className="text-sm">Thinking...</span>
+                </div>
+              ) : decision ? (
+                <div>
+                  <div className={`text-2xl font-bold ${colorClass.text}`}>
+                    {competitionMode === 'bertrand' && decision.price !== undefined
+                      ? `p = ${decision.price.toFixed(2)}`
+                      : `q = ${decision.quantity.toFixed(2)}`}
+                  </div>
+                  {decision.reasoning && (
+                    <p className="mt-1 text-xs text-gray-600 line-clamp-2">
+                      {decision.reasoning}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="text-gray-400 text-sm">Waiting...</div>
               )}
-            </div>
-          ) : (
-            <div className="text-gray-400">Waiting...</div>
-          )}
 
-          <div className="mt-4 pt-4 border-t">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Nash Quantity:</span>
-              <span className="font-medium">{nashEquilibrium.firm1Quantity.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Cumulative Profit:</span>
-              <span className="font-medium">{cumulativeProfits.firm1.toFixed(2)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Firm 2 */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-red-600">Firm 2</h2>
-            <span className="text-sm text-gray-500">{config.firm2Model}</span>
-          </div>
-
-          {firmThinking.firm2 ? (
-            <div className="flex items-center gap-2 text-gray-500">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
-              Thinking...
-            </div>
-          ) : latestDecisions.firm2 ? (
-            <div>
-              <div className="text-3xl font-bold text-red-600">
-                q = {latestDecisions.firm2.quantity.toFixed(2)}
+              <div className="mt-3 pt-3 border-t text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Nash {competitionMode === 'bertrand' ? 'Price' : 'Qty'}:</span>
+                  <span className="font-medium">{nashQty.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Cum. Profit:</span>
+                  <span className="font-medium">{(cumulativeProfits[firmId] ?? 0).toFixed(2)}</span>
+                </div>
               </div>
-              {latestDecisions.firm2.reasoning && (
-                <p className="mt-2 text-sm text-gray-600 line-clamp-3">
-                  {latestDecisions.firm2.reasoning}
-                </p>
-              )}
             </div>
-          ) : (
-            <div className="text-gray-400">Waiting...</div>
-          )}
-
-          <div className="mt-4 pt-4 border-t">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Nash Quantity:</span>
-              <span className="font-medium">{nashEquilibrium.firm2Quantity.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Cumulative Profit:</span>
-              <span className="font-medium">{cumulativeProfits.firm2.toFixed(2)}</span>
-            </div>
-          </div>
-        </div>
+          );
+        })}
       </div>
 
       {/* Communication Panel */}
@@ -195,12 +182,20 @@ export function GameBoard() {
       {/* Chart */}
       {rounds.length > 0 && (
         <div className="bg-white p-6 rounded-lg shadow mb-6">
-          <h2 className="text-xl font-semibold mb-4">Quantity History</h2>
-          <QuantityChart rounds={rounds} nashEquilibrium={nashEquilibrium} />
+          <h2 className="text-xl font-semibold mb-4">
+            {competitionMode === 'bertrand' ? 'Price' : 'Quantity'} History
+          </h2>
+          <QuantityChart
+            rounds={rounds}
+            nashEquilibrium={nashEquilibrium}
+            nPolyEquilibrium={nPolyEquilibrium}
+            numFirms={numFirms}
+            competitionMode={competitionMode}
+          />
         </div>
       )}
 
-      {/* Results Table */}
+      {/* Results Table - Dynamic for N firms */}
       {rounds.length > 0 && (
         <div className="bg-white p-6 rounded-lg shadow">
           <h2 className="text-xl font-semibold mb-4">Round Results</h2>
@@ -208,49 +203,75 @@ export function GameBoard() {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="px-4 py-2 text-left">Round</th>
-                  <th className="px-4 py-2 text-right text-blue-600">q1</th>
-                  <th className="px-4 py-2 text-right text-red-600">q2</th>
-                  <th className="px-4 py-2 text-right">Price</th>
-                  <th className="px-4 py-2 text-right text-blue-600">Profit 1</th>
-                  <th className="px-4 py-2 text-right text-red-600">Profit 2</th>
+                  <th className="px-3 py-2 text-left">Round</th>
+                  {Array.from({ length: numFirms }, (_, i) => (
+                    <th key={`q${i + 1}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                      {competitionMode === 'bertrand' ? `p${i + 1}` : `q${i + 1}`}
+                    </th>
+                  ))}
+                  <th className="px-3 py-2 text-right">Avg Price</th>
+                  {Array.from({ length: numFirms }, (_, i) => (
+                    <th key={`profit${i + 1}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                      π{i + 1}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {rounds.map((round) => (
                   <tr key={round.roundNumber} className="border-b hover:bg-gray-50">
-                    <td className="px-4 py-2">{round.roundNumber}</td>
-                    <td className="px-4 py-2 text-right text-blue-600">
-                      {round.firm1Quantity.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-2 text-right text-red-600">
-                      {round.firm2Quantity.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-2 text-right">{round.marketPrice.toFixed(2)}</td>
-                    <td className="px-4 py-2 text-right text-blue-600">
-                      {round.firm1Profit.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-2 text-right text-red-600">
-                      {round.firm2Profit.toFixed(2)}
-                    </td>
+                    <td className="px-3 py-2">{round.roundNumber}</td>
+                    {Array.from({ length: numFirms }, (_, i) => {
+                      const firmId = i + 1;
+                      const firmResult = round.firmResults?.find(f => f.firmId === firmId);
+                      const value = competitionMode === 'bertrand'
+                        ? (firmResult?.price ?? round.marketPrices?.[i] ?? round.marketPrice)
+                        : (firmResult?.quantity ?? (firmId === 1 ? round.firm1Quantity : firmId === 2 ? round.firm2Quantity : 0));
+                      return (
+                        <td key={`q${firmId}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                          {value.toFixed(2)}
+                        </td>
+                      );
+                    })}
+                    <td className="px-3 py-2 text-right">{round.marketPrice.toFixed(2)}</td>
+                    {Array.from({ length: numFirms }, (_, i) => {
+                      const firmId = i + 1;
+                      const firmResult = round.firmResults?.find(f => f.firmId === firmId);
+                      const profit = firmResult?.profit ?? (firmId === 1 ? round.firm1Profit : firmId === 2 ? round.firm2Profit : 0);
+                      return (
+                        <td key={`profit${firmId}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                          {profit.toFixed(2)}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
                 {/* Nash reference row */}
                 <tr className="bg-gray-100 font-medium">
-                  <td className="px-4 py-2">Nash</td>
-                  <td className="px-4 py-2 text-right text-blue-600">
-                    {nashEquilibrium.firm1Quantity.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2 text-right text-red-600">
-                    {nashEquilibrium.firm2Quantity.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2 text-right">{nashEquilibrium.marketPrice.toFixed(2)}</td>
-                  <td className="px-4 py-2 text-right text-blue-600">
-                    {nashEquilibrium.firm1Profit.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2 text-right text-red-600">
-                    {nashEquilibrium.firm2Profit.toFixed(2)}
-                  </td>
+                  <td className="px-3 py-2">Nash</td>
+                  {Array.from({ length: numFirms }, (_, i) => {
+                    const firmId = i + 1;
+                    const nashFirm = nPolyEquilibrium?.firms.find(f => f.firmId === firmId);
+                    const value = competitionMode === 'bertrand'
+                      ? (nashFirm?.price ?? nPolyEquilibrium?.avgMarketPrice ?? nashEquilibrium.marketPrice)
+                      : (nashFirm?.quantity ?? (firmId === 1 ? nashEquilibrium.firm1Quantity : firmId === 2 ? nashEquilibrium.firm2Quantity : 0));
+                    return (
+                      <td key={`nash-q${firmId}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                        {value.toFixed(2)}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-2 text-right">{nPolyEquilibrium?.avgMarketPrice?.toFixed(2) ?? nashEquilibrium.marketPrice.toFixed(2)}</td>
+                  {Array.from({ length: numFirms }, (_, i) => {
+                    const firmId = i + 1;
+                    const nashFirm = nPolyEquilibrium?.firms.find(f => f.firmId === firmId);
+                    const profit = nashFirm?.profit ?? (firmId === 1 ? nashEquilibrium.firm1Profit : firmId === 2 ? nashEquilibrium.firm2Profit : 0);
+                    return (
+                      <td key={`nash-profit${firmId}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                        {profit.toFixed(2)}
+                      </td>
+                    );
+                  })}
                 </tr>
               </tbody>
             </table>

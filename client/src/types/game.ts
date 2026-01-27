@@ -1,3 +1,6 @@
+// Competition mode type
+export type CompetitionMode = 'cournot' | 'bertrand';
+
 // Information disclosure options for LLMs
 export interface InformationDisclosure {
   revealDemandFunction: boolean;
@@ -14,7 +17,16 @@ export interface CommunicationSettings {
   communicationPrompt?: string;
 }
 
-// Cournot Game Configuration
+// Individual firm configuration (for N-firm oligopoly)
+export interface FirmConfig {
+  id: number;
+  linearCost: number;      // c_i
+  quadraticCost: number;   // d_i
+  model: string;
+  info: InformationDisclosure;
+}
+
+// Cournot Game Configuration (extended for N-poly and Bertrand)
 export interface CournotConfig {
   demandIntercept: number;  // a
   demandSlope: number;      // b
@@ -33,17 +45,34 @@ export interface CournotConfig {
   customRoundPrompt?: string;
   minQuantity?: number;
   maxQuantity?: number;
+  // New fields for extended functionality
+  competitionMode?: CompetitionMode;
+  numFirms?: number;           // 2-10
+  gamma?: number;              // 0=independent, 1=homogeneous
+  firms?: FirmConfig[];
+  minPrice?: number;
+  maxPrice?: number;
 }
 
 // Communication message between firms
 export interface CommunicationMessage {
-  firm: 1 | 2;
+  firm: number;  // Changed from 1 | 2 to support N firms
   message: string;
 }
 
-// Result of a single round
+// Individual firm result in a round (for N-firm support)
+export interface FirmRoundResult {
+  firmId: number;
+  quantity: number;
+  price?: number;
+  profit: number;
+  reasoning?: string;
+}
+
+// Result of a single round (extended for N firms)
 export interface RoundResult {
   roundNumber: number;
+  // Legacy fields for backward compatibility (duopoly)
   firm1Quantity: number;
   firm2Quantity: number;
   totalQuantity: number;
@@ -52,11 +81,14 @@ export interface RoundResult {
   firm2Profit: number;
   firm1Reasoning?: string;
   firm2Reasoning?: string;
+  // New fields for N-firm support
+  firmResults?: FirmRoundResult[];
+  marketPrices?: number[];
   communication?: CommunicationMessage[];
   timestamp: Date;
 }
 
-// Nash equilibrium values
+// Nash equilibrium values (legacy duopoly)
 export interface NashEquilibrium {
   firm1Quantity: number;
   firm2Quantity: number;
@@ -64,6 +96,32 @@ export interface NashEquilibrium {
   marketPrice: number;
   firm1Profit: number;
   firm2Profit: number;
+}
+
+// N-firm equilibrium (extended)
+export interface NPolyEquilibrium {
+  competitionMode: CompetitionMode;
+  firms: {
+    firmId: number;
+    quantity: number;
+    price?: number;
+    profit: number;
+  }[];
+  totalQuantity: number;
+  marketPrices: number[];
+  avgMarketPrice: number;
+  totalProfit: number;
+}
+
+// Limit-pricing analysis (Zanchettin 2006) - only for duopoly
+export interface LimitPricingAnalysis {
+  asymmetryIndex: number;
+  limitPricingThresholdLow: number;
+  limitPricingThresholdHigh: number;
+  isInLimitPricingRegion: boolean;
+  isInMonopolyRegion: boolean;
+  dominantFirm?: number;
+  analysisMessage: string;
 }
 
 // Result of a single replication (one full game)
@@ -103,6 +161,10 @@ export interface GameState {
   replications: ReplicationResult[];
   nashEquilibrium: NashEquilibrium;
   cooperativeEquilibrium: CooperativeEquilibrium;
+  // Extended equilibrium for N-firm support
+  nPolyEquilibrium?: NPolyEquilibrium;
+  bertrandEquilibrium?: NPolyEquilibrium;
+  limitPricingAnalysis?: LimitPricingAnalysis;
   startedAt?: Date;
   completedAt?: Date;
 }
@@ -125,19 +187,55 @@ export interface ServerToClientEvents {
   'communication-started': (roundNumber: number) => void;
   'communication-message': (data: CommunicationMessage) => void;
   'communication-complete': (messages: CommunicationMessage[]) => void;
-  'firm-decision': (data: { firm: 1 | 2; quantity: number; reasoning?: string }) => void;
+  'firm-decision': (data: { firm: number; quantity: number; price?: number; reasoning?: string }) => void;
   'round-complete': (result: RoundResult) => void;
   'game-over': (state: GameState) => void;
   'error': (message: string) => void;
-  'llm-thinking': (data: { firm: 1 | 2; status: string }) => void;
+  'llm-thinking': (data: { firm: number; status: string }) => void;
 }
 
-// Available LLM models
+// Available LLM models with pricing (per 1M tokens)
 export const AVAILABLE_MODELS = [
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+  { value: 'gpt-5-nano', label: 'GPT-5 Nano', inputPrice: 0.05, outputPrice: 0.40, description: 'Fastest & cheapest' },
+  { value: 'gpt-5-mini', label: 'GPT-5 Mini', inputPrice: 0.25, outputPrice: 2.00, description: 'Good balance' },
+  { value: 'gpt-5', label: 'GPT-5', inputPrice: 1.25, outputPrice: 10.00, description: 'High capability' },
+  { value: 'gpt-5.2', label: 'GPT-5.2', inputPrice: 1.75, outputPrice: 14.00, description: 'Latest flagship' },
+  { value: 'gpt-4o', label: 'GPT-4o', inputPrice: 2.50, outputPrice: 10.00, description: 'Previous flagship' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini', inputPrice: 0.15, outputPrice: 0.60, description: 'Previous mini' },
+];
+
+// Competition modes
+export const COMPETITION_MODES: { value: CompetitionMode; label: string; description: string }[] = [
+  { value: 'cournot', label: 'Cournot (Quantity)', description: 'Firms compete by choosing production quantities' },
+  { value: 'bertrand', label: 'Bertrand (Price)', description: 'Firms compete by setting prices' },
+];
+
+// Firm colors for visualization (supports up to 10 firms)
+export const FIRM_COLORS = [
+  '#3b82f6', // blue-500 - Firm 1
+  '#ef4444', // red-500 - Firm 2
+  '#10b981', // emerald-500 - Firm 3
+  '#f59e0b', // amber-500 - Firm 4
+  '#8b5cf6', // violet-500 - Firm 5
+  '#ec4899', // pink-500 - Firm 6
+  '#06b6d4', // cyan-500 - Firm 7
+  '#84cc16', // lime-500 - Firm 8
+  '#f97316', // orange-500 - Firm 9
+  '#6366f1', // indigo-500 - Firm 10
+];
+
+// Firm color classes for Tailwind (text and background variants)
+export const FIRM_COLOR_CLASSES = [
+  { text: 'text-blue-600', bg: 'bg-blue-100', border: 'border-blue-500' },
+  { text: 'text-red-600', bg: 'bg-red-100', border: 'border-red-500' },
+  { text: 'text-emerald-600', bg: 'bg-emerald-100', border: 'border-emerald-500' },
+  { text: 'text-amber-600', bg: 'bg-amber-100', border: 'border-amber-500' },
+  { text: 'text-violet-600', bg: 'bg-violet-100', border: 'border-violet-500' },
+  { text: 'text-pink-600', bg: 'bg-pink-100', border: 'border-pink-500' },
+  { text: 'text-cyan-600', bg: 'bg-cyan-100', border: 'border-cyan-500' },
+  { text: 'text-lime-600', bg: 'bg-lime-100', border: 'border-lime-500' },
+  { text: 'text-orange-600', bg: 'bg-orange-100', border: 'border-orange-500' },
+  { text: 'text-indigo-600', bg: 'bg-indigo-100', border: 'border-indigo-500' },
 ];
 
 // Default information disclosure (full information)
@@ -165,9 +263,88 @@ export const DEFAULT_CONFIG: CournotConfig = {
   firm2QuadraticCost: 0, // d2
   totalRounds: 10,
   numReplications: 1,
-  firm1Model: 'gpt-4o-mini',
-  firm2Model: 'gpt-4o-mini',
+  firm1Model: 'gpt-5-nano',
+  firm2Model: 'gpt-5-nano',
   firm1Info: { ...DEFAULT_INFO_DISCLOSURE },
   firm2Info: { ...DEFAULT_INFO_DISCLOSURE },
   communication: { ...DEFAULT_COMMUNICATION },
+  // New extended fields with defaults
+  competitionMode: 'cournot',
+  numFirms: 2,
+  gamma: 1,  // Homogeneous products by default
 };
+
+// Helper function to get number of firms from config
+export function getNumFirms(config: CournotConfig): number {
+  if (config.numFirms) return config.numFirms;
+  if (config.firms) return config.firms.length;
+  return 2;
+}
+
+// Helper function to get gamma from config
+export function getGamma(config: CournotConfig): number {
+  return config.gamma ?? 1;
+}
+
+// Helper function to get competition mode from config
+export function getCompetitionMode(config: CournotConfig): CompetitionMode {
+  return config.competitionMode || 'cournot';
+}
+
+// Helper function to get firm config
+export function getFirmConfig(config: CournotConfig, firmId: number): {
+  linearCost: number;
+  quadraticCost: number;
+  model: string;
+  info: InformationDisclosure;
+} {
+  if (config.firms && config.firms.length >= firmId) {
+    const firm = config.firms[firmId - 1];
+    return {
+      linearCost: firm.linearCost,
+      quadraticCost: firm.quadraticCost,
+      model: firm.model,
+      info: firm.info,
+    };
+  }
+
+  if (firmId === 1) {
+    return {
+      linearCost: config.firm1LinearCost,
+      quadraticCost: config.firm1QuadraticCost,
+      model: config.firm1Model,
+      info: config.firm1Info,
+    };
+  } else if (firmId === 2) {
+    return {
+      linearCost: config.firm2LinearCost,
+      quadraticCost: config.firm2QuadraticCost,
+      model: config.firm2Model,
+      info: config.firm2Info,
+    };
+  }
+
+  // Default for firms 3+
+  return {
+    linearCost: 10,
+    quadraticCost: 0,
+    model: 'gpt-5-nano',
+    info: { ...DEFAULT_INFO_DISCLOSURE },
+  };
+}
+
+// Helper to create default firms array
+export function createDefaultFirms(numFirms: number, baseConfig: CournotConfig): FirmConfig[] {
+  const firms: FirmConfig[] = [];
+  for (let i = 1; i <= numFirms; i++) {
+    const existing = getFirmConfig(baseConfig, i);
+    firms.push({
+      id: i,
+      linearCost: existing.linearCost,
+      quadraticCost: existing.quadraticCost,
+      model: existing.model,
+      info: { ...existing.info },
+    });
+  }
+  return firms;
+}

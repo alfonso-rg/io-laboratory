@@ -1,4 +1,16 @@
-import { CournotConfig, NashEquilibrium, CooperativeEquilibrium, RoundResult } from '../types';
+import {
+  CournotConfig,
+  NashEquilibrium,
+  CooperativeEquilibrium,
+  RoundResult,
+  NPolyEquilibrium,
+  LimitPricingAnalysis,
+  FirmRoundResult,
+  getNumFirms,
+  getGamma,
+  getCompetitionMode,
+  getFirmConfig,
+} from '../types';
 
 export class EconomicsService {
   /**
@@ -315,5 +327,512 @@ export class EconomicsService {
     const denominator = 2 * (b + quadraticCost);
 
     return Math.max(0, numerator / denominator);
+  }
+
+  // ============================================
+  // N-FIRM OLIGOPOLY METHODS (Zanchettin 2006)
+  // ============================================
+
+  /**
+   * Solve a linear system Ax = b using Gaussian elimination with partial pivoting
+   * Returns the solution vector x, or null if no unique solution exists
+   */
+  static solveLinearSystem(A: number[][], b: number[]): number[] | null {
+    const n = A.length;
+
+    // Create augmented matrix [A|b]
+    const aug: number[][] = A.map((row, i) => [...row, b[i]]);
+
+    // Forward elimination with partial pivoting
+    for (let col = 0; col < n; col++) {
+      // Find pivot
+      let maxRow = col;
+      for (let row = col + 1; row < n; row++) {
+        if (Math.abs(aug[row][col]) > Math.abs(aug[maxRow][col])) {
+          maxRow = row;
+        }
+      }
+
+      // Swap rows
+      [aug[col], aug[maxRow]] = [aug[maxRow], aug[col]];
+
+      // Check for singular matrix
+      if (Math.abs(aug[col][col]) < 1e-10) {
+        return null;
+      }
+
+      // Eliminate column
+      for (let row = col + 1; row < n; row++) {
+        const factor = aug[row][col] / aug[col][col];
+        for (let j = col; j <= n; j++) {
+          aug[row][j] -= factor * aug[col][j];
+        }
+      }
+    }
+
+    // Back substitution
+    const x = new Array(n).fill(0);
+    for (let i = n - 1; i >= 0; i--) {
+      x[i] = aug[i][n];
+      for (let j = i + 1; j < n; j++) {
+        x[i] -= aug[i][j] * x[j];
+      }
+      x[i] /= aug[i][i];
+    }
+
+    return x;
+  }
+
+  /**
+   * Calculate differentiated market price for firm i (Singh & Vives model)
+   * p_i = α - q_i - γ * Σ(q_j, j≠i)
+   *
+   * With homogeneous products (γ=1), this reduces to p = α - Q
+   */
+  static calculateDifferentiatedPrice(
+    firmIndex: number,
+    quantities: number[],
+    config: CournotConfig
+  ): number {
+    const { demandIntercept: a, demandSlope: b } = config;
+    const gamma = getGamma(config);
+    const n = quantities.length;
+
+    const ownQuantity = quantities[firmIndex];
+    let otherQuantitiesSum = 0;
+    for (let j = 0; j < n; j++) {
+      if (j !== firmIndex) {
+        otherQuantitiesSum += quantities[j];
+      }
+    }
+
+    // p_i = a - b*(q_i + γ*Σq_j)
+    const price = a - b * (ownQuantity + gamma * otherQuantitiesSum);
+    return Math.max(0, price);
+  }
+
+  /**
+   * Calculate Nash-Cournot equilibrium for N firms with product differentiation
+   *
+   * FOC for firm i: ∂π_i/∂q_i = α - c_i - 2(b + d_i)q_i - γb*Σq_j = 0
+   *
+   * This forms a linear system: A*q = B
+   * where A[i][i] = 2(b + d_i) and A[i][j] = γb for i≠j
+   */
+  static calculateNashCournotNFirms(config: CournotConfig): NPolyEquilibrium {
+    const { demandIntercept: a, demandSlope: b } = config;
+    const gamma = getGamma(config);
+    const numFirms = getNumFirms(config);
+
+    // Build coefficient matrix A and vector B
+    const A: number[][] = [];
+    const B: number[] = [];
+
+    for (let i = 0; i < numFirms; i++) {
+      const firmConfig = getFirmConfig(config, i + 1);
+      const c_i = firmConfig.linearCost;
+      const d_i = firmConfig.quadraticCost;
+
+      // α_i = a - c_i (effective demand intercept for firm i)
+      const alpha_i = a - c_i;
+      B.push(alpha_i);
+
+      // Build row i of matrix A
+      const row: number[] = [];
+      for (let j = 0; j < numFirms; j++) {
+        if (i === j) {
+          // Diagonal: 2(b + d_i)
+          row.push(2 * (b + d_i));
+        } else {
+          // Off-diagonal: γb
+          row.push(gamma * b);
+        }
+      }
+      A.push(row);
+    }
+
+    // Solve the system
+    const solution = this.solveLinearSystem(A, B);
+
+    if (!solution) {
+      throw new Error('Could not solve N-firm Cournot equilibrium system');
+    }
+
+    // Ensure non-negative quantities
+    const quantities = solution.map(q => Math.max(0, q));
+
+    // Calculate prices and profits for each firm
+    const firms: NPolyEquilibrium['firms'] = [];
+    const marketPrices: number[] = [];
+    let totalQuantity = 0;
+    let totalProfit = 0;
+
+    for (let i = 0; i < numFirms; i++) {
+      const q_i = quantities[i];
+      totalQuantity += q_i;
+
+      const price_i = this.calculateDifferentiatedPrice(i, quantities, config);
+      marketPrices.push(price_i);
+
+      const firmConfig = getFirmConfig(config, i + 1);
+      const cost_i = this.calculateCost(q_i, firmConfig.linearCost, firmConfig.quadraticCost);
+      const profit_i = price_i * q_i - cost_i;
+      totalProfit += profit_i;
+
+      firms.push({
+        firmId: i + 1,
+        quantity: q_i,
+        profit: profit_i,
+      });
+    }
+
+    const avgMarketPrice = marketPrices.reduce((sum, p) => sum + p, 0) / numFirms;
+
+    return {
+      competitionMode: 'cournot',
+      firms,
+      totalQuantity,
+      marketPrices,
+      avgMarketPrice,
+      totalProfit,
+    };
+  }
+
+  /**
+   * Calculate Nash-Bertrand equilibrium for N firms with differentiated products
+   *
+   * Direct demand: q_i = (1/(1+(n-1)γ)) * [a(1-γ) + γΣα_j - (1+(n-2)γ)p_i + γΣp_j] / b
+   * (Simplified for symmetric α case)
+   *
+   * FOC: ∂π_i/∂p_i = q_i + (p_i - MC_i) * ∂q_i/∂p_i = 0
+   */
+  static calculateNashBertrandNFirms(config: CournotConfig): NPolyEquilibrium {
+    const { demandIntercept: a, demandSlope: b } = config;
+    const gamma = getGamma(config);
+    const numFirms = getNumFirms(config);
+
+    // For Bertrand with differentiation, we need γ < 1 for interior solution
+    // With γ = 1 (homogeneous), Bertrand leads to p = MC (perfect competition)
+
+    if (gamma >= 0.9999) {
+      // Homogeneous Bertrand: price = lowest marginal cost
+      let minMC = Infinity;
+      let minMCFirmIndex = 0;
+
+      for (let i = 0; i < numFirms; i++) {
+        const firmConfig = getFirmConfig(config, i + 1);
+        // MC at q=0 is just c_i (for linear cost portion)
+        if (firmConfig.linearCost < minMC) {
+          minMC = firmConfig.linearCost;
+          minMCFirmIndex = i;
+        }
+      }
+
+      // All firms price at minMC, demand split (or all goes to lowest cost)
+      const firms: NPolyEquilibrium['firms'] = [];
+      const marketPrices: number[] = [];
+      const price = minMC;
+      const totalQ = (a - price) / b;
+
+      for (let i = 0; i < numFirms; i++) {
+        const firmConfig = getFirmConfig(config, i + 1);
+        // In perfect Bertrand, typically lowest cost firm gets all demand
+        // For simulation purposes, we'll split equally if costs are equal
+        const isLowestCost = firmConfig.linearCost === minMC;
+        const numLowest = Array.from({ length: numFirms }, (_, j) =>
+          getFirmConfig(config, j + 1).linearCost === minMC ? 1 : 0
+        ).reduce((a, b) => a + b, 0);
+
+        const q_i = isLowestCost ? totalQ / numLowest : 0;
+        const profit_i = (price - firmConfig.linearCost) * q_i - firmConfig.quadraticCost * q_i * q_i;
+
+        firms.push({
+          firmId: i + 1,
+          quantity: q_i,
+          price: price,
+          profit: profit_i,
+        });
+        marketPrices.push(price);
+      }
+
+      return {
+        competitionMode: 'bertrand',
+        firms,
+        totalQuantity: totalQ,
+        marketPrices,
+        avgMarketPrice: price,
+        totalProfit: firms.reduce((sum, f) => sum + f.profit, 0),
+      };
+    }
+
+    // Differentiated Bertrand: Build and solve the FOC system
+    // For firm i: p_i = (a(1-γ) + c_i*(1+(n-2)γ) + γΣp_j) / (2*(1+(n-2)γ))
+    // This forms a linear system in prices
+
+    const A: number[][] = [];
+    const B: number[] = [];
+
+    const denom = 1 + (numFirms - 2) * gamma;
+
+    for (let i = 0; i < numFirms; i++) {
+      const firmConfig = getFirmConfig(config, i + 1);
+      const c_i = firmConfig.linearCost;
+
+      // RHS: a(1-γ) + c_i*(1+(n-2)γ)
+      B.push(a * (1 - gamma) + c_i * denom);
+
+      // Build row
+      const row: number[] = [];
+      for (let j = 0; j < numFirms; j++) {
+        if (i === j) {
+          row.push(2 * denom);
+        } else {
+          row.push(-gamma);
+        }
+      }
+      A.push(row);
+    }
+
+    const solution = this.solveLinearSystem(A, B);
+
+    if (!solution) {
+      throw new Error('Could not solve N-firm Bertrand equilibrium system');
+    }
+
+    // Prices
+    const prices = solution.map(p => Math.max(0, p));
+
+    // Calculate quantities from prices using direct demand
+    const firms: NPolyEquilibrium['firms'] = [];
+    let totalQuantity = 0;
+    let totalProfit = 0;
+
+    for (let i = 0; i < numFirms; i++) {
+      const p_i = prices[i];
+
+      // Direct demand with differentiation
+      let otherPricesSum = 0;
+      for (let j = 0; j < numFirms; j++) {
+        if (j !== i) otherPricesSum += prices[j];
+      }
+
+      // q_i = [a - p_i + γ/(1-γ) * (avg_p_j - p_i)] / b  (simplified)
+      // More precisely: q_i = (a - p_i - γ*(a - p̄)) / (b*(1-γ²)) where p̄ = avg other prices
+      const avgOtherPrice = numFirms > 1 ? otherPricesSum / (numFirms - 1) : p_i;
+      const q_i = Math.max(0, (a * (1 - gamma) - p_i * (1 - gamma * gamma / (numFirms > 1 ? 1 : 1)) + gamma * (avgOtherPrice - p_i * gamma)) / (b * (1 - gamma * gamma)));
+
+      // Simpler formula for symmetric case: q_i = (a - p_i - γ*(n-1)*(p̄ - p_i)/(n-1)) / b
+      // Let's use a cleaner formulation
+      const q_i_clean = Math.max(0, (a - p_i - gamma * (otherPricesSum - (numFirms - 1) * p_i) / (numFirms > 1 ? numFirms - 1 : 1)) / b);
+
+      totalQuantity += q_i_clean;
+
+      const firmConfig = getFirmConfig(config, i + 1);
+      const cost_i = this.calculateCost(q_i_clean, firmConfig.linearCost, firmConfig.quadraticCost);
+      const profit_i = p_i * q_i_clean - cost_i;
+      totalProfit += profit_i;
+
+      firms.push({
+        firmId: i + 1,
+        quantity: q_i_clean,
+        price: p_i,
+        profit: profit_i,
+      });
+    }
+
+    return {
+      competitionMode: 'bertrand',
+      firms,
+      totalQuantity,
+      marketPrices: prices,
+      avgMarketPrice: prices.reduce((sum, p) => sum + p, 0) / numFirms,
+      totalProfit,
+    };
+  }
+
+  /**
+   * Analyze limit-pricing regions (Zanchettin 2006)
+   * Only applicable for duopoly (n=2)
+   *
+   * Asymmetry index: a = (α₁-c₁) - (α₂-c₂) normalized by demand
+   * Limit-pricing region: 1 - γ/(2-γ²) ≤ a < 1 - γ/2
+   * Monopoly region: a ≥ 1 - γ/2
+   */
+  static analyzeLimitPricing(config: CournotConfig): LimitPricingAnalysis {
+    const { demandIntercept: a } = config;
+    const gamma = getGamma(config);
+    const numFirms = getNumFirms(config);
+
+    if (numFirms !== 2) {
+      return {
+        asymmetryIndex: 0,
+        limitPricingThresholdLow: 0,
+        limitPricingThresholdHigh: 0,
+        isInLimitPricingRegion: false,
+        isInMonopolyRegion: false,
+        analysisMessage: 'Limit-pricing analysis only applicable for duopoly (n=2)',
+      };
+    }
+
+    const firm1 = getFirmConfig(config, 1);
+    const firm2 = getFirmConfig(config, 2);
+
+    // Effective demand intercepts
+    const alpha1 = a - firm1.linearCost;
+    const alpha2 = a - firm2.linearCost;
+
+    // Normalize asymmetry by one firm's effective demand (using firm 2 as reference)
+    // a = (α₁ - α₂) / α₂ = (c₂ - c₁) / (a - c₂)
+    const asymmetryIndex = alpha2 !== 0 ? (alpha1 - alpha2) / alpha2 : 0;
+
+    // Thresholds from Zanchettin (2006)
+    // Lower: 1 - γ/(2-γ²)
+    const limitPricingThresholdLow = 1 - gamma / (2 - gamma * gamma);
+    // Upper: 1 - γ/2
+    const limitPricingThresholdHigh = 1 - gamma / 2;
+
+    const isInLimitPricingRegion =
+      asymmetryIndex >= limitPricingThresholdLow &&
+      asymmetryIndex < limitPricingThresholdHigh;
+
+    const isInMonopolyRegion = asymmetryIndex >= limitPricingThresholdHigh;
+
+    let dominantFirm: number | undefined;
+    let analysisMessage: string;
+
+    if (isInMonopolyRegion) {
+      dominantFirm = alpha1 > alpha2 ? 1 : 2;
+      analysisMessage = `Monopoly region: Firm ${dominantFirm} has sufficient cost advantage to monopolize the market (weak firm exits).`;
+    } else if (isInLimitPricingRegion) {
+      dominantFirm = alpha1 > alpha2 ? 1 : 2;
+      analysisMessage = `Limit-pricing region: Firm ${dominantFirm} can engage in limit pricing to constrain Firm ${dominantFirm === 1 ? 2 : 1}.`;
+    } else {
+      analysisMessage = 'Interior duopoly region: Both firms compete actively in the market.';
+    }
+
+    return {
+      asymmetryIndex,
+      limitPricingThresholdLow,
+      limitPricingThresholdHigh,
+      isInLimitPricingRegion,
+      isInMonopolyRegion,
+      dominantFirm,
+      analysisMessage,
+    };
+  }
+
+  /**
+   * Calculate N-poly equilibrium based on competition mode
+   */
+  static calculateNPolyEquilibrium(config: CournotConfig): NPolyEquilibrium {
+    const mode = getCompetitionMode(config);
+
+    if (mode === 'bertrand') {
+      return this.calculateNashBertrandNFirms(config);
+    } else {
+      return this.calculateNashCournotNFirms(config);
+    }
+  }
+
+  /**
+   * Calculate round result for N firms
+   */
+  static calculateNPolyRoundResult(
+    roundNumber: number,
+    decisions: { firmId: number; quantity?: number; price?: number; reasoning?: string; systemPrompt?: string; roundPrompt?: string }[],
+    config: CournotConfig
+  ): RoundResult {
+    const numFirms = getNumFirms(config);
+    const mode = getCompetitionMode(config);
+    const gamma = getGamma(config);
+
+    const firmResults: FirmRoundResult[] = [];
+    const quantities: number[] = [];
+    const prices: number[] = [];
+
+    // First pass: collect all quantities/prices
+    for (let i = 0; i < numFirms; i++) {
+      const decision = decisions.find(d => d.firmId === i + 1) || { firmId: i + 1, quantity: 0 };
+
+      let q = decision.quantity ?? 0;
+      let p = decision.price;
+
+      // Apply constraints
+      if (config.minQuantity !== undefined) q = Math.max(config.minQuantity, q);
+      if (config.maxQuantity !== undefined) q = Math.min(config.maxQuantity, q);
+      if (p !== undefined) {
+        if (config.minPrice !== undefined) p = Math.max(config.minPrice, p);
+        if (config.maxPrice !== undefined) p = Math.min(config.maxPrice, p);
+      }
+
+      quantities.push(q);
+      if (p !== undefined) prices.push(p);
+    }
+
+    // Second pass: calculate prices (if Cournot) or quantities (if Bertrand) and profits
+    const marketPrices: number[] = [];
+    let totalQuantity = 0;
+
+    for (let i = 0; i < numFirms; i++) {
+      const firmConfig = getFirmConfig(config, i + 1);
+      const decision = decisions.find(d => d.firmId === i + 1);
+
+      let q_i: number;
+      let p_i: number;
+
+      if (mode === 'cournot') {
+        q_i = quantities[i];
+        p_i = this.calculateDifferentiatedPrice(i, quantities, config);
+      } else {
+        // Bertrand: price is the decision, calculate quantity from demand
+        p_i = prices[i] ?? firmConfig.linearCost;  // Default to MC if no price
+
+        // Calculate quantity from demand function with differentiation
+        let otherPricesSum = 0;
+        for (let j = 0; j < numFirms; j++) {
+          if (j !== i) otherPricesSum += (prices[j] ?? p_i);
+        }
+        const avgOtherPrice = numFirms > 1 ? otherPricesSum / (numFirms - 1) : p_i;
+
+        // Simplified direct demand
+        q_i = Math.max(0, (config.demandIntercept - p_i + gamma * (avgOtherPrice - p_i)) / config.demandSlope);
+      }
+
+      totalQuantity += q_i;
+      marketPrices.push(p_i);
+
+      const cost_i = this.calculateCost(q_i, firmConfig.linearCost, firmConfig.quadraticCost);
+      const profit_i = p_i * q_i - cost_i;
+
+      firmResults.push({
+        firmId: i + 1,
+        quantity: q_i,
+        price: mode === 'bertrand' ? p_i : undefined,
+        profit: profit_i,
+        reasoning: decision?.reasoning,
+        systemPrompt: decision?.systemPrompt,
+        roundPrompt: decision?.roundPrompt,
+      });
+    }
+
+    // Build legacy-compatible result (for duopoly)
+    const avgPrice = marketPrices.reduce((sum, p) => sum + p, 0) / numFirms;
+
+    return {
+      roundNumber,
+      // Legacy fields (use first two firms for backward compatibility)
+      firm1Quantity: firmResults[0]?.quantity ?? 0,
+      firm2Quantity: firmResults[1]?.quantity ?? 0,
+      totalQuantity,
+      marketPrice: avgPrice,
+      firm1Profit: firmResults[0]?.profit ?? 0,
+      firm2Profit: firmResults[1]?.profit ?? 0,
+      firm1Reasoning: firmResults[0]?.reasoning,
+      firm2Reasoning: firmResults[1]?.reasoning,
+      // Extended fields
+      firmResults,
+      marketPrices,
+      timestamp: new Date(),
+    };
   }
 }
