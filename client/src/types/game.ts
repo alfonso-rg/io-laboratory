@@ -37,6 +37,17 @@ export interface NashEquilibrium {
   firm2Profit: number;
 }
 
+// Cooperative equilibrium (multiplant monopoly)
+export interface CooperativeEquilibrium {
+  firm1Quantity: number;
+  firm2Quantity: number;
+  totalQuantity: number;
+  marketPrice: number;
+  firm1Profit: number;
+  firm2Profit: number;
+  totalProfit: number;
+}
+
 // Current game state
 export interface GameState {
   gameId: string;
@@ -45,6 +56,7 @@ export interface GameState {
   currentRound: number;
   rounds: RoundResult[];
   nashEquilibrium: NashEquilibrium;
+  cooperativeEquilibrium: CooperativeEquilibrium;
   startedAt?: Date;
   completedAt?: Date;
 }

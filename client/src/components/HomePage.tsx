@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useGameStore, calculateNashEquilibrium } from '../stores/gameStore';
+import { useGameStore, calculateNashEquilibrium, calculateCooperativeEquilibrium } from '../stores/gameStore';
 import { useSocket } from '../hooks/useSocket';
 import { AVAILABLE_MODELS } from '../types/game';
 
@@ -8,6 +8,7 @@ export function HomePage() {
   const { configureGame, startGame } = useSocket();
 
   const nashEquilibrium = useMemo(() => calculateNashEquilibrium(config), [config]);
+  const cooperativeEquilibrium = useMemo(() => calculateCooperativeEquilibrium(config), [config]);
 
   const handleConfigureAndStart = () => {
     configureGame(config);
@@ -197,38 +198,82 @@ export function HomePage() {
         </div>
       </div>
 
-      {/* Nash Equilibrium Display */}
-      {nashEquilibrium && (
-        <div className="mt-6 bg-blue-50 p-6 rounded-lg shadow">
-          <h2 className="text-xl font-semibold mb-4">Theoretical Nash Equilibrium</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div>
-              <span className="text-sm text-gray-600">Firm 1 Quantity:</span>
-              <span className="block text-lg font-bold">{nashEquilibrium.firm1Quantity.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-sm text-gray-600">Firm 2 Quantity:</span>
-              <span className="block text-lg font-bold">{nashEquilibrium.firm2Quantity.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-sm text-gray-600">Market Price:</span>
-              <span className="block text-lg font-bold">{nashEquilibrium.marketPrice.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-sm text-gray-600">Firm 1 Profit:</span>
-              <span className="block text-lg font-bold">{nashEquilibrium.firm1Profit.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-sm text-gray-600">Firm 2 Profit:</span>
-              <span className="block text-lg font-bold">{nashEquilibrium.firm2Profit.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-sm text-gray-600">Total Quantity:</span>
-              <span className="block text-lg font-bold">{nashEquilibrium.totalQuantity.toFixed(2)}</span>
+      {/* Theoretical Equilibria */}
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Nash Equilibrium */}
+        {nashEquilibrium && (
+          <div className="bg-blue-50 p-6 rounded-lg shadow">
+            <h2 className="text-xl font-semibold mb-4 text-blue-800">Nash Equilibrium (Competition)</h2>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-gray-600">Firm 1 Quantity:</span>
+                <span className="block text-lg font-bold">{nashEquilibrium.firm1Quantity.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Firm 2 Quantity:</span>
+                <span className="block text-lg font-bold">{nashEquilibrium.firm2Quantity.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Total Quantity:</span>
+                <span className="block text-lg font-bold">{nashEquilibrium.totalQuantity.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Market Price:</span>
+                <span className="block text-lg font-bold">{nashEquilibrium.marketPrice.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Firm 1 Profit:</span>
+                <span className="block text-lg font-bold">{nashEquilibrium.firm1Profit.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Firm 2 Profit:</span>
+                <span className="block text-lg font-bold">{nashEquilibrium.firm2Profit.toFixed(2)}</span>
+              </div>
+              <div className="col-span-2 pt-2 border-t">
+                <span className="text-gray-600">Total Profit:</span>
+                <span className="block text-lg font-bold">{(nashEquilibrium.firm1Profit + nashEquilibrium.firm2Profit).toFixed(2)}</span>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Cooperative Equilibrium */}
+        {cooperativeEquilibrium && (
+          <div className="bg-green-50 p-6 rounded-lg shadow">
+            <h2 className="text-xl font-semibold mb-4 text-green-800">Cooperative Equilibrium (Monopoly)</h2>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-gray-600">Firm 1 Quantity:</span>
+                <span className="block text-lg font-bold">{cooperativeEquilibrium.firm1Quantity.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Firm 2 Quantity:</span>
+                <span className="block text-lg font-bold">{cooperativeEquilibrium.firm2Quantity.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Total Quantity:</span>
+                <span className="block text-lg font-bold">{cooperativeEquilibrium.totalQuantity.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Market Price:</span>
+                <span className="block text-lg font-bold">{cooperativeEquilibrium.marketPrice.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Firm 1 Profit:</span>
+                <span className="block text-lg font-bold">{cooperativeEquilibrium.firm1Profit.toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Firm 2 Profit:</span>
+                <span className="block text-lg font-bold">{cooperativeEquilibrium.firm2Profit.toFixed(2)}</span>
+              </div>
+              <div className="col-span-2 pt-2 border-t">
+                <span className="text-gray-600">Total Profit:</span>
+                <span className="block text-lg font-bold text-green-700">{cooperativeEquilibrium.totalProfit.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Start Button */}
       <div className="mt-6 flex justify-center">

@@ -123,3 +123,68 @@ export function calculateNashEquilibrium(config: CournotConfig) {
     firm2Profit,
   };
 }
+
+// Utility function to calculate cooperative equilibrium (multiplant monopoly)
+export function calculateCooperativeEquilibrium(config: CournotConfig) {
+  const { demandIntercept: a, demandSlope: b } = config;
+  const { firm1LinearCost: c1, firm1QuadraticCost: d1 } = config;
+  const { firm2LinearCost: c2, firm2QuadraticCost: d2 } = config;
+
+  let q1Coop: number;
+  let q2Coop: number;
+  let totalQuantity: number;
+
+  // Case 1: Both firms have quadratic costs
+  if (d1 > 0 && d2 > 0) {
+    const gamma1 = 1 / (2 * d1);
+    const gamma2 = 1 / (2 * d2);
+    const gammaSum = gamma1 + gamma2;
+
+    totalQuantity = (gammaSum * a - gamma1 * c1 - gamma2 * c2) / (1 + 2 * b * gammaSum);
+    totalQuantity = Math.max(0, totalQuantity);
+
+    q1Coop = Math.max(0, (a - 2 * b * totalQuantity - c1) / (2 * d1));
+    q2Coop = Math.max(0, (a - 2 * b * totalQuantity - c2) / (2 * d2));
+  }
+  // Case 2-4: Linear costs (d1 = 0 or d2 = 0)
+  else {
+    // Monopolist uses only the lower cost plant (or splits if equal)
+    if (c1 < c2 || (c1 === c2 && d1 === 0)) {
+      totalQuantity = (a - c1) / (2 * b);
+      q1Coop = totalQuantity;
+      q2Coop = 0;
+    } else if (c2 < c1) {
+      totalQuantity = (a - c2) / (2 * b);
+      q1Coop = 0;
+      q2Coop = totalQuantity;
+    } else {
+      // c1 = c2: split equally
+      totalQuantity = (a - c1) / (2 * b);
+      q1Coop = totalQuantity / 2;
+      q2Coop = totalQuantity / 2;
+    }
+  }
+
+  totalQuantity = Math.max(0, q1Coop + q2Coop);
+  const marketPrice = Math.max(0, a - b * totalQuantity);
+
+  const firm1Revenue = marketPrice * q1Coop;
+  const firm1Cost = c1 * q1Coop + d1 * q1Coop * q1Coop;
+  const firm1Profit = firm1Revenue - firm1Cost;
+
+  const firm2Revenue = marketPrice * q2Coop;
+  const firm2Cost = c2 * q2Coop + d2 * q2Coop * q2Coop;
+  const firm2Profit = firm2Revenue - firm2Cost;
+
+  const totalProfit = firm1Profit + firm2Profit;
+
+  return {
+    firm1Quantity: q1Coop,
+    firm2Quantity: q2Coop,
+    totalQuantity,
+    marketPrice,
+    firm1Profit,
+    firm2Profit,
+    totalProfit,
+  };
+}

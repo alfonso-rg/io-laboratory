@@ -36,6 +36,7 @@ export class CournotService {
    */
   createGame(config: CournotConfig): GameState {
     const nashEquilibrium = EconomicsService.calculateNashEquilibrium(config);
+    const cooperativeEquilibrium = EconomicsService.calculateCooperativeEquilibrium(config);
 
     this.gameState = {
       gameId: uuidv4(),
@@ -44,11 +45,13 @@ export class CournotService {
       currentRound: 0,
       rounds: [],
       nashEquilibrium,
+      cooperativeEquilibrium,
     };
 
     logger.info(`Game created: ${this.gameState.gameId}`, {
       config,
       nashEquilibrium,
+      cooperativeEquilibrium,
     });
 
     return this.gameState;
