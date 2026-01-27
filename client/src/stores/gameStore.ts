@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CournotConfig, GameState, DEFAULT_CONFIG } from '../types/game';
+import { CournotConfig, GameState, CommunicationMessage, DEFAULT_CONFIG } from '../types/game';
 
 interface FirmThinking {
   firm1: boolean;
@@ -28,6 +28,11 @@ interface GameStore {
   };
   setLatestDecision: (firm: 1 | 2, quantity: number, reasoning?: string) => void;
   clearLatestDecisions: () => void;
+
+  // Communication messages (current round)
+  currentCommunication: CommunicationMessage[];
+  addCommunicationMessage: (message: CommunicationMessage) => void;
+  clearCommunication: () => void;
 
   // Error handling
   error: string | null;
@@ -70,6 +75,14 @@ export const useGameStore = create<GameStore>((set) => ({
       },
     })),
   clearLatestDecisions: () => set({ latestDecisions: {} }),
+
+  // Communication messages
+  currentCommunication: [],
+  addCommunicationMessage: (message) =>
+    set((state) => ({
+      currentCommunication: [...state.currentCommunication, message],
+    })),
+  clearCommunication: () => set({ currentCommunication: [] }),
 
   // Error handling
   error: null,

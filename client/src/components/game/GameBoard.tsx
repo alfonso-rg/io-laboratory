@@ -3,7 +3,7 @@ import { useSocket } from '../../hooks/useSocket';
 import { QuantityChart } from './QuantityChart';
 
 export function GameBoard() {
-  const { gameState, firmThinking, latestDecisions } = useGameStore();
+  const { gameState, firmThinking, latestDecisions, currentCommunication } = useGameStore();
   const { pauseGame, resumeGame, resetGame } = useSocket();
 
   if (!gameState) {
@@ -19,6 +19,7 @@ export function GameBoard() {
   const isPaused = status === 'paused';
   const isCompleted = status === 'completed';
   const numReplications = config.numReplications || 1;
+  const hasCommunication = config.communication?.allowCommunication;
 
   // Calculate cumulative profits
   const cumulativeProfits = rounds.reduce(
@@ -166,6 +167,30 @@ export function GameBoard() {
           </div>
         </div>
       </div>
+
+      {/* Communication Panel */}
+      {hasCommunication && currentCommunication.length > 0 && (
+        <div className="bg-purple-50 p-6 rounded-lg shadow mb-6">
+          <h2 className="text-xl font-semibold mb-4 text-purple-800">Communication (Round {currentRound})</h2>
+          <div className="space-y-2">
+            {currentCommunication.map((msg, idx) => (
+              <div
+                key={idx}
+                className={`p-3 rounded-lg ${
+                  msg.firm === 1
+                    ? 'bg-blue-100 ml-0 mr-12'
+                    : 'bg-red-100 ml-12 mr-0'
+                }`}
+              >
+                <span className={`font-semibold ${msg.firm === 1 ? 'text-blue-600' : 'text-red-600'}`}>
+                  Firm {msg.firm}:
+                </span>
+                <span className="ml-2">{msg.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Chart */}
       {rounds.length > 0 && (

@@ -19,6 +19,8 @@ export function useSocket() {
     resetFirmThinking,
     setLatestDecision,
     clearLatestDecisions,
+    addCommunicationMessage,
+    clearCommunication,
     setError,
     setConnected,
   } = useGameStore();
@@ -60,13 +62,28 @@ export function useSocket() {
     socket.on('round-started', (roundNumber) => {
       console.log(`Round ${roundNumber} started`);
       clearLatestDecisions();
+      clearCommunication();
       setFirmThinking(1, true);
       setFirmThinking(2, true);
     });
 
+    socket.on('communication-started', (roundNumber) => {
+      console.log(`Communication phase started for round ${roundNumber}`);
+      clearCommunication();
+    });
+
+    socket.on('communication-message', (message) => {
+      console.log(`Firm ${message.firm} says: ${message.message}`);
+      addCommunicationMessage(message);
+    });
+
+    socket.on('communication-complete', (messages) => {
+      console.log('Communication phase complete', messages);
+    });
+
     socket.on('llm-thinking', ({ firm, status }) => {
       console.log(`Firm ${firm}: ${status}`);
-      setFirmThinking(firm, status === 'thinking');
+      setFirmThinking(firm, status === 'thinking' || status === 'communicating');
     });
 
     socket.on('firm-decision', ({ firm, quantity, reasoning }) => {
@@ -101,6 +118,8 @@ export function useSocket() {
     resetFirmThinking,
     setLatestDecision,
     clearLatestDecisions,
+    addCommunicationMessage,
+    clearCommunication,
     setError,
     setConnected,
   ]);

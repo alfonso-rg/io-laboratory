@@ -220,7 +220,18 @@ export class CournotService {
 
     logger.info(`Starting round ${roundNumber}`);
 
+    let communication: { firm: 1 | 2; message: string }[] | undefined;
+
     try {
+      // Communication phase (if enabled)
+      if (this.gameState.config.communication.allowCommunication) {
+        this.io.emit('communication-started', roundNumber);
+        logger.info(`Starting communication phase for round ${roundNumber}`);
+
+        communication = await this.runCommunicationPhase(roundNumber);
+        this.io.emit('communication-complete', communication);
+      }
+
       // Notify clients that LLMs are thinking
       this.io.emit('llm-thinking', { firm: 1, status: 'thinking' });
       this.io.emit('llm-thinking', { firm: 2, status: 'thinking' });
@@ -254,6 +265,11 @@ export class CournotService {
         decisions.firm2.reasoning
       );
 
+      // Add communication to result if it occurred
+      if (communication) {
+        roundResult.communication = communication;
+      }
+
       // Store result
       this.gameState.rounds.push(roundResult);
 
@@ -265,12 +281,48 @@ export class CournotService {
         firm1Quantity: roundResult.firm1Quantity,
         firm2Quantity: roundResult.firm2Quantity,
         price: roundResult.marketPrice,
+        hadCommunication: !!communication,
       });
     } catch (error) {
       logger.error(`Error in round ${roundNumber}:`, error);
       this.io.emit('error', `Error in round ${roundNumber}: ${(error as Error).message}`);
       throw error;
     }
+  }
+
+  /**
+   * Run communication phase for a round
+   */
+  private async runCommunicationPhase(
+    roundNumber: number
+  ): Promise<{ firm: 1 | 2; message: string }[]> {
+    if (!this.gameState) return [];
+
+    const config = this.gameState.config;
+    const messagesPerRound = config.communication.messagesPerRound || 2;
+    const conversation: { firm: 1 | 2; message: string }[] = [];
+
+    for (let i = 0; i < messagesPerRound; i++) {
+      const currentFirm: 1 | 2 = (i % 2 === 0) ? 1 : 2;
+
+      this.io.emit('llm-thinking', { firm: currentFirm, status: 'communicating' });
+
+      const message = await this.llmService.getCommunicationMessage(
+        config,
+        currentFirm,
+        roundNumber,
+        this.gameState.rounds,
+        conversation
+      );
+
+      conversation.push({ firm: currentFirm, message });
+      this.io.emit('communication-message', { firm: currentFirm, message });
+
+      // Small delay between messages
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    return conversation;
   }
 
   /**

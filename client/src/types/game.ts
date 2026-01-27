@@ -35,6 +35,12 @@ export interface CournotConfig {
   maxQuantity?: number;
 }
 
+// Communication message between firms
+export interface CommunicationMessage {
+  firm: 1 | 2;
+  message: string;
+}
+
 // Result of a single round
 export interface RoundResult {
   roundNumber: number;
@@ -46,6 +52,7 @@ export interface RoundResult {
   firm2Profit: number;
   firm1Reasoning?: string;
   firm2Reasoning?: string;
+  communication?: CommunicationMessage[];
   timestamp: Date;
 }
 
@@ -115,6 +122,9 @@ export interface ServerToClientEvents {
   'replication-started': (data: { replicationNumber: number; totalReplications: number }) => void;
   'replication-complete': (result: ReplicationResult) => void;
   'round-started': (roundNumber: number) => void;
+  'communication-started': (roundNumber: number) => void;
+  'communication-message': (data: CommunicationMessage) => void;
+  'communication-complete': (messages: CommunicationMessage[]) => void;
   'firm-decision': (data: { firm: 1 | 2; quantity: number; reasoning?: string }) => void;
   'round-complete': (result: RoundResult) => void;
   'game-over': (state: GameState) => void;

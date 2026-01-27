@@ -251,4 +251,102 @@ export class LLMService {
       firm2: firm2Decision,
     };
   }
+
+  /**
+   * Generate communication prompt for a firm
+   */
+  private generateCommunicationPrompt(
+    config: CournotConfig,
+    firmNumber: 1 | 2,
+    currentRound: number,
+    conversationHistory: { firm: 1 | 2; message: string }[]
+  ): string {
+    let prompt = `COMMUNICATION PHASE - Round ${currentRound}\n\n`;
+    prompt += 'Before making your quantity decision, you can send a message to the other firm.\n';
+    prompt += 'You may discuss strategies, propose cooperation, or any other communication.\n\n';
+
+    if (conversationHistory.length > 0) {
+      prompt += 'CONVERSATION SO FAR:\n';
+      for (const msg of conversationHistory) {
+        const sender = msg.firm === firmNumber ? 'You' : 'Other Firm';
+        prompt += `${sender}: ${msg.message}\n`;
+      }
+      prompt += '\n';
+    }
+
+    prompt += 'Write your message to the other firm. Keep it concise (1-3 sentences).\n';
+    prompt += 'Your response should be ONLY the message you want to send.';
+
+    return prompt;
+  }
+
+  /**
+   * Get a communication message from a firm
+   */
+  async getCommunicationMessage(
+    config: CournotConfig,
+    firmNumber: 1 | 2,
+    currentRound: number,
+    history: RoundResult[],
+    conversationHistory: { firm: 1 | 2; message: string }[]
+  ): Promise<string> {
+    const model = firmNumber === 1 ? config.firm1Model : config.firm2Model;
+    const systemPrompt = this.generateSystemPrompt(config, firmNumber);
+    const userPrompt = this.generateCommunicationPrompt(config, firmNumber, currentRound, conversationHistory);
+
+    logger.info(`Requesting communication from Firm ${firmNumber} (${model})`);
+
+    try {
+      const completion = await this.openai.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 200,
+      });
+
+      const content = completion.choices[0]?.message?.content;
+      if (!content) {
+        throw new Error('Empty response from LLM');
+      }
+
+      logger.info(`Firm ${firmNumber} message: ${content.substring(0, 100)}...`);
+      return content.trim();
+    } catch (error) {
+      logger.error(`Error getting communication from Firm ${firmNumber}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Run communication phase between two firms
+   */
+  async runCommunicationPhase(
+    config: CournotConfig,
+    currentRound: number,
+    history: RoundResult[]
+  ): Promise<{ firm: 1 | 2; message: string }[]> {
+    const messagesPerRound = config.communication.messagesPerRound || 2;
+    const conversation: { firm: 1 | 2; message: string }[] = [];
+
+    // Alternate between firms
+    for (let i = 0; i < messagesPerRound; i++) {
+      // Firm 1 speaks on even turns, Firm 2 on odd turns
+      const currentFirm: 1 | 2 = (i % 2 === 0) ? 1 : 2;
+
+      const message = await this.getCommunicationMessage(
+        config,
+        currentFirm,
+        currentRound,
+        history,
+        conversation
+      );
+
+      conversation.push({ firm: currentFirm, message });
+    }
+
+    return conversation;
+  }
 }
