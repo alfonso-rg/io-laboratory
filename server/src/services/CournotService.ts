@@ -334,9 +334,13 @@ export class CournotService {
     this.gameState.status = 'completed';
     this.gameState.completedAt = new Date();
 
-    // Calculate summary
+    // Calculate summary across all replications
+    const allRounds = this.gameState.replications.length > 0
+      ? this.gameState.replications.flatMap(r => r.rounds)
+      : this.gameState.rounds;
+
     const summary = EconomicsService.calculateGameSummary(
-      this.gameState.rounds,
+      allRounds,
       this.gameState.nashEquilibrium
     );
 
@@ -346,14 +350,19 @@ export class CournotService {
         gameId: this.gameState.gameId,
         config: this.gameState.config,
         rounds: this.gameState.rounds,
+        replications: this.gameState.replications,
         nashEquilibrium: this.gameState.nashEquilibrium,
+        cooperativeEquilibrium: this.gameState.cooperativeEquilibrium,
         summary,
         startedAt: this.gameState.startedAt,
         completedAt: this.gameState.completedAt,
       });
 
       await gameResult.save();
-      logger.info(`Game results saved: ${this.gameState.gameId}`);
+      logger.info(`Game results saved: ${this.gameState.gameId}`, {
+        numReplications: this.gameState.replications.length,
+        totalRounds: allRounds.length,
+      });
     } catch (error) {
       logger.error('Error saving game results:', error);
     }

@@ -169,7 +169,9 @@ export interface GameResultData {
   gameId: string;
   config: CournotConfig;
   rounds: RoundResult[];
+  replications: ReplicationResult[];
   nashEquilibrium: NashEquilibrium;
+  cooperativeEquilibrium?: CooperativeEquilibrium;
   summary: {
     totalFirm1Profit: number;
     totalFirm2Profit: number;
