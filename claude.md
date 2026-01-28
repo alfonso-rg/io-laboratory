@@ -26,16 +26,23 @@ Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 
 - **Limit-Pricing**: Análisis basado en Zanchettin (2006) para detectar regiones de monopolio y pricing predatorio (solo duopolio)
 
 ### Modelos LLM Disponibles
-- GPT-5 Nano - $0.05/$0.40 por 1M tokens (alto rendimiento, tareas simples)
-- GPT-5 Mini - $0.25/$2.00 por 1M tokens (balance costo/capacidad)
-- GPT-5.2 (niveles de razonamiento: none, low, medium, high) - $1.75/$14.00 por 1M tokens
-- GPT-5.2 Pro - $3.50/$28.00 por 1M tokens (problemas difíciles)
-- GPT-4o Mini (por defecto) - $0.15/$0.60 por 1M tokens (rápido y económico)
-- GPT-4o - $2.50/$10.00 por 1M tokens (modelo anterior flagship)
+- GPT-5 Nano - $0.05/$0.40 por 1M tokens (alto rendimiento, tareas simples) - usa Chat Completions API
+- GPT-5 Mini - $0.25/$2.00 por 1M tokens (balance costo/capacidad) - usa Chat Completions API
+- GPT-5.2 (niveles de razonamiento: none, low, medium, high, xhigh) - $1.75/$14.00 por 1M tokens - usa Responses API
+- GPT-5.2 Pro - $3.50/$28.00 por 1M tokens (problemas difíciles) - usa Responses API
+- GPT-4o Mini (por defecto) - $0.15/$0.60 por 1M tokens (rápido y económico) - usa Chat Completions API
+- GPT-4o - $2.50/$10.00 por 1M tokens (modelo anterior flagship) - usa Chat Completions API
 
 ### Estimación de Costes
 - Estimación automática de tokens y coste antes de ejecutar experimentos
 - Basada en número de rondas, réplicas, firmas, comunicación y modelo seleccionado
+- **Multiplicadores de razonamiento para GPT-5.2**: Los modelos con reasoning generan tokens adicionales de razonamiento que se facturan como output. Multiplicadores aproximados:
+  - none: 1× (sin tokens de razonamiento adicionales)
+  - low: 1.5×
+  - medium: 2.5×
+  - high: 4×
+  - xhigh: 8×
+- Advertencia visual cuando se usan modelos con reasoning indicando que los costes son aproximados
 
 ## Modelo Económico
 
@@ -156,7 +163,11 @@ io-laboratory/
 - **Comunicación entre firmas**:
   - Habilitar diálogo pre-decisión
   - Número de mensajes por ronda
-- **Prompts personalizados**: Editor de system prompt
+- **Prompts personalizados**:
+  - Botón "View Default Prompt" para ver el prompt que se enviará al LLM según la configuración actual
+  - Selector de firma para previsualizar prompt por firma
+  - Editor de system prompt con variables disponibles
+  - Botón "Copy to Editor" para personalizar el prompt predefinido
 
 ### 3. Visualización del Juego (GameBoard.tsx)
 - Estado de cada firma (pensando/decidido) - N cards con colores

@@ -71,6 +71,23 @@ export function HomePage() {
   const isRunning = gameState?.status === 'running';
   const canStart = connected && !isRunning;
 
+  // Reasoning effort multipliers for output tokens (approximate)
+  // Higher reasoning = more reasoning tokens generated (billed as output)
+  const getReasoningMultiplier = (modelName: string): { multiplier: number; level: string | null } => {
+    if (modelName.startsWith('gpt-5.2:')) {
+      const level = modelName.split(':')[1];
+      switch (level) {
+        case 'none': return { multiplier: 1, level };
+        case 'low': return { multiplier: 1.5, level };
+        case 'medium': return { multiplier: 2.5, level };
+        case 'high': return { multiplier: 4, level };
+        case 'xhigh': return { multiplier: 8, level };
+        default: return { multiplier: 1, level: null };
+      }
+    }
+    return { multiplier: 1, level: null };
+  };
+
   // Cost estimation calculation
   const costEstimate = useMemo(() => {
     const totalRounds = config.totalRounds || 10;
@@ -90,7 +107,7 @@ export function HomePage() {
     const avgHistoryRounds = (totalRounds - 1) / 2;
     const avgInputTokensPerRound = systemPromptTokens + baseRoundPromptTokens + (avgHistoryRounds * historyTokensPerRound);
 
-    // Per-firm tokens per round
+    // Per-firm tokens per round (base)
     let inputPerFirmPerRound = avgInputTokensPerRound;
     let outputPerFirmPerRound = outputTokensPerDecision;
 
@@ -100,10 +117,6 @@ export function HomePage() {
       inputPerFirmPerRound += communicationInputTokens * messagesPerFirm;
       outputPerFirmPerRound += communicationOutputTokens * messagesPerFirm;
     }
-
-    // Total tokens
-    const totalInputTokens = inputPerFirmPerRound * numFirms * totalRounds * numReps;
-    const totalOutputTokens = outputPerFirmPerRound * numFirms * totalRounds * numReps;
 
     // Calculate cost for each unique model used
     const firmModels: string[] = [];
@@ -117,14 +130,32 @@ export function HomePage() {
       modelCounts[m] = (modelCounts[m] || 0) + 1;
     });
 
-    // Calculate weighted average cost
+    // Calculate weighted cost with reasoning multipliers
     let totalCost = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let hasReasoningModels = false;
+    const reasoningLevels: string[] = [];
+
     Object.entries(modelCounts).forEach(([modelName, count]) => {
       const modelInfo = AVAILABLE_MODELS.find(m => m.value === modelName);
+      const { multiplier, level } = getReasoningMultiplier(modelName);
+
+      if (level) {
+        hasReasoningModels = true;
+        if (!reasoningLevels.includes(level)) reasoningLevels.push(level);
+      }
+
       if (modelInfo) {
-        const firmFraction = count / numFirms;
-        const inputCost = (totalInputTokens * firmFraction / 1_000_000) * modelInfo.inputPrice;
-        const outputCost = (totalOutputTokens * firmFraction / 1_000_000) * modelInfo.outputPrice;
+        const firmInputTokens = inputPerFirmPerRound * count * totalRounds * numReps;
+        // Apply reasoning multiplier to output tokens
+        const firmOutputTokens = outputPerFirmPerRound * count * totalRounds * numReps * multiplier;
+
+        totalInputTokens += firmInputTokens;
+        totalOutputTokens += firmOutputTokens;
+
+        const inputCost = (firmInputTokens / 1_000_000) * modelInfo.inputPrice;
+        const outputCost = (firmOutputTokens / 1_000_000) * modelInfo.outputPrice;
         totalCost += inputCost + outputCost;
       }
     });
@@ -134,10 +165,13 @@ export function HomePage() {
       totalOutputTokens,
       totalTokens: totalInputTokens + totalOutputTokens,
       estimatedCost: totalCost,
+      hasReasoningModels,
+      reasoningLevels,
       modelBreakdown: Object.entries(modelCounts).map(([model, count]) => ({
         model,
         count,
         modelInfo: AVAILABLE_MODELS.find(m => m.value === model),
+        reasoningMultiplier: getReasoningMultiplier(model).multiplier,
       })),
     };
   }, [config, numFirms]);
@@ -519,7 +553,11 @@ export function HomePage() {
           {costEstimate.modelBreakdown.map((mb, i) => (
             <span key={mb.model}>
               {i > 0 && ', '}
-              {mb.model} (×{mb.count}, ${mb.modelInfo?.inputPrice ?? '?'}/${mb.modelInfo?.outputPrice ?? '?'}/M)
+              {mb.model} (×{mb.count}, ${mb.modelInfo?.inputPrice ?? '?'}/${mb.modelInfo?.outputPrice ?? '?'}/M
+              {mb.reasoningMultiplier > 1 && (
+                <span className="text-orange-600"> ×{mb.reasoningMultiplier} reasoning</span>
+              )}
+              )
             </span>
           ))}
           {config.communication?.allowCommunication && (
@@ -528,6 +566,15 @@ export function HomePage() {
             </span>
           )}
         </div>
+        {costEstimate.hasReasoningModels && (
+          <div className="mt-3 p-3 bg-orange-100 border border-orange-300 rounded-lg text-xs text-orange-800">
+            <strong>⚠️ Reasoning Cost Warning:</strong> Models with reasoning ({costEstimate.reasoningLevels.join(', ')}) generate additional "reasoning tokens" that are billed as output tokens.
+            The multipliers shown ({costEstimate.reasoningLevels.map(l => {
+              const mult = l === 'none' ? '1×' : l === 'low' ? '1.5×' : l === 'medium' ? '2.5×' : l === 'high' ? '4×' : '8×';
+              return `${l}: ${mult}`;
+            }).join(', ')}) are <strong>approximate estimates</strong>. Actual costs may vary significantly depending on task complexity.
+          </div>
+        )}
       </div>
 
       {/* Start Button */}
