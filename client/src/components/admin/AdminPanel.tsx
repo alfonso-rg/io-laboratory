@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { FIRM_COLORS, AVAILABLE_MODELS } from '../../types/game';
 
+// API base URL - use the same URL as socket connection
+const API_BASE_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+
 interface FirmRoundResult {
   firmId: number;
   quantity: number;
@@ -188,7 +191,7 @@ export function AdminPanel() {
   const fetchGameDetails = async (gameId: string) => {
     setLoadingDetails(true);
     try {
-      const response = await fetch(`/api/admin/games/${gameId}`);
+      const response = await fetch(`${API_BASE_URL}/api/admin/games/${gameId}`);
       const data = await response.json();
       if (data.success) {
         setSelectedGame(data.data);
@@ -221,7 +224,7 @@ export function AdminPanel() {
 
   const fetchGames = async () => {
     try {
-      const response = await fetch(`/api/admin/games?page=${page}&limit=10`);
+      const response = await fetch(`${API_BASE_URL}/api/admin/games?page=${page}&limit=10`);
       const data = await response.json();
       if (data.success) {
         setGames(data.data.games);
@@ -238,7 +241,7 @@ export function AdminPanel() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/admin/stats');
+      const response = await fetch(`${API_BASE_URL}/api/admin/stats`);
       const data = await response.json();
       if (data.success) {
         setStats(data.data);
@@ -252,7 +255,7 @@ export function AdminPanel() {
     if (!confirm('Are you sure you want to delete this game?')) return;
 
     try {
-      const response = await fetch(`/api/admin/games/${gameId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/admin/games/${gameId}`, {
         method: 'DELETE',
       });
       const data = await response.json();
