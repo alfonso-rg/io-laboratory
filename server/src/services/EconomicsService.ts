@@ -541,7 +541,7 @@ export class EconomicsService {
         const isLowestCost = firmConfig.linearCost === minMC;
         const numLowest = Array.from({ length: numFirms }, (_, j) =>
           getFirmConfig(config, j + 1).linearCost === minMC ? 1 : 0
-        ).reduce((a, b) => a + b, 0);
+        ).reduce((a: number, b: number) => a + b, 0);
 
         const q_i = isLowestCost ? totalQ / numLowest : 0;
         const profit_i = (price - firmConfig.linearCost) * q_i - firmConfig.quadraticCost * q_i * q_i;

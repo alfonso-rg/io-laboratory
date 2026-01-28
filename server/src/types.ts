@@ -99,6 +99,10 @@ export interface CournotConfig {
   minQuantity?: number;
   maxQuantity?: number;
 
+  // Optional: price constraints (for Bertrand)
+  minPrice?: number;
+  maxPrice?: number;
+
   // New fields for extended functionality (optional for backward compatibility)
   competitionMode?: CompetitionMode;
   numFirms?: number;

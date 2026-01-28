@@ -288,8 +288,8 @@ export class CournotService {
         if (decision) {
           this.io.emit('firm-decision', {
             firm: i,
-            quantity: mode === 'cournot' ? decision.quantity : undefined,
-            price: mode === 'bertrand' ? decision.quantity : undefined,  // In Bertrand, the "quantity" field holds price
+            quantity: mode === 'cournot' ? decision.quantity : 0,
+            price: mode === 'bertrand' ? decision.quantity : 0,  // In Bertrand, the "quantity" field holds price
             reasoning: decision.reasoning,
           });
         }

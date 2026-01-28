@@ -11,6 +11,37 @@ import {
 } from '../types';
 import { logger } from '../config/logger';
 
+// Type for GPT-5.2 reasoning effort levels
+type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+
+// Check if model is a GPT-5 family model that uses Responses API
+function isGPT5Model(model: string): boolean {
+  return model.startsWith('gpt-5');
+}
+
+// Parse model string to extract base model and reasoning level
+// Format: "gpt-5.2:medium" -> { model: "gpt-5.2", reasoning: "medium" }
+// For gpt-5-nano and gpt-5-mini, no reasoning parameter (they use default)
+function parseModelString(modelString: string): { model: string; reasoning?: ReasoningEffort; useResponsesAPI: boolean } {
+  const parts = modelString.split(':');
+
+  // Check for GPT-5.2 with explicit reasoning level
+  if (parts.length === 2 && parts[0].startsWith('gpt-5.2')) {
+    const reasoningLevel = parts[1] as ReasoningEffort;
+    if (['none', 'low', 'medium', 'high', 'xhigh'].includes(reasoningLevel)) {
+      return { model: parts[0], reasoning: reasoningLevel, useResponsesAPI: true };
+    }
+  }
+
+  // GPT-5 family models (gpt-5-nano, gpt-5-mini, gpt-5.2-pro) use Responses API
+  if (isGPT5Model(modelString)) {
+    return { model: modelString, useResponsesAPI: true };
+  }
+
+  // Other models (GPT-4o, etc.) use Chat Completions API
+  return { model: modelString, useResponsesAPI: false };
+}
+
 export class LLMService {
   private openai: OpenAI;
 
@@ -332,6 +363,7 @@ export class LLMService {
 
   /**
    * Get LLM decision for a round
+   * Supports GPT-5.2 models with reasoning effort levels
    */
   async getDecision(
     config: CournotConfig,
@@ -340,25 +372,47 @@ export class LLMService {
     history: RoundResult[]
   ): Promise<LLMDecision> {
     const firmConfig = getFirmConfig(config, firmNumber);
-    const model = firmConfig.model;
+    const modelString = firmConfig.model;
+    const { model: baseModel, reasoning, useResponsesAPI } = parseModelString(modelString);
     const systemPrompt = this.generateSystemPrompt(config, firmNumber);
     const userPrompt = this.generateRoundPrompt(config, firmNumber, currentRound, history);
     const mode = getCompetitionMode(config);
 
-    logger.info(`Requesting decision from Firm ${firmNumber} (${model}) for round ${currentRound}`);
+    logger.info(`Requesting decision from Firm ${firmNumber} (${baseModel}${reasoning ? `:${reasoning}` : ''}) for round ${currentRound}`);
 
     try {
-      const completion = await this.openai.chat.completions.create({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.7,
-        max_tokens: 500,
-      });
+      let content: string | null = null;
 
-      const content = completion.choices[0]?.message?.content;
+      if (useResponsesAPI) {
+        // Use Responses API for GPT-5 family models
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const requestParams: any = {
+          model: baseModel,
+          input: `${systemPrompt}\n\n${userPrompt}`,
+        };
+
+        // Add reasoning parameter only for GPT-5.2 with explicit level
+        if (reasoning) {
+          requestParams.reasoning = { effort: reasoning };
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const response = await (this.openai as any).responses.create(requestParams);
+        content = response.output_text || response.output?.[0]?.content?.[0]?.text;
+      } else {
+        // Use Chat Completions API for GPT-4 models
+        const completion = await this.openai.chat.completions.create({
+          model: baseModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 500,
+        });
+        content = completion.choices[0]?.message?.content;
+      }
+
       if (!content) {
         throw new Error('Empty response from LLM');
       }
@@ -473,6 +527,7 @@ export class LLMService {
 
   /**
    * Get a communication message from a firm
+   * Supports GPT-5 family models with Responses API
    */
   async getCommunicationMessage(
     config: CournotConfig,
@@ -482,24 +537,46 @@ export class LLMService {
     conversationHistory: { firm: number; message: string }[]
   ): Promise<string> {
     const firmConfig = getFirmConfig(config, firmNumber);
-    const model = firmConfig.model;
+    const modelString = firmConfig.model;
+    const { model: baseModel, reasoning, useResponsesAPI } = parseModelString(modelString);
     const systemPrompt = this.generateSystemPrompt(config, firmNumber);
     const userPrompt = this.generateCommunicationPrompt(config, firmNumber, currentRound, conversationHistory);
 
-    logger.info(`Requesting communication from Firm ${firmNumber} (${model})`);
+    logger.info(`Requesting communication from Firm ${firmNumber} (${baseModel}${reasoning ? `:${reasoning}` : ''})`);
 
     try {
-      const completion = await this.openai.chat.completions.create({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.7,
-        max_tokens: 200,
-      });
+      let content: string | null = null;
 
-      const content = completion.choices[0]?.message?.content;
+      if (useResponsesAPI) {
+        // Use Responses API for GPT-5 family models
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const requestParams: any = {
+          model: baseModel,
+          input: `${systemPrompt}\n\n${userPrompt}`,
+        };
+
+        // Add reasoning parameter only for GPT-5.2 with explicit level
+        if (reasoning) {
+          requestParams.reasoning = { effort: reasoning };
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const response = await (this.openai as any).responses.create(requestParams);
+        content = response.output_text || response.output?.[0]?.content?.[0]?.text;
+      } else {
+        // Use Chat Completions API for GPT-4 models
+        const completion = await this.openai.chat.completions.create({
+          model: baseModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 200,
+        });
+        content = completion.choices[0]?.message?.content;
+      }
+
       if (!content) {
         throw new Error('Empty response from LLM');
       }
