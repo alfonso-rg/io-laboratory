@@ -7,7 +7,11 @@ import {
   ServerToClientEvents,
 } from '../types/game';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+// Socket URL - use environment variable or fall back to production/localhost
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL ||
+  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+    ? 'https://io-laboratory.onrender.com'
+    : 'http://localhost:3001');
 
 type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 

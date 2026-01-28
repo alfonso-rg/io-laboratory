@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { FIRM_COLORS, AVAILABLE_MODELS } from '../../types/game';
 
 // API base URL - use the same URL as socket connection
-const API_BASE_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+// In production (Vercel), fall back to Render backend if VITE_SOCKET_URL is not set
+const API_BASE_URL = import.meta.env.VITE_SOCKET_URL ||
+  (window.location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://io-laboratory.onrender.com');
 
 interface FirmRoundResult {
   firmId: number;
