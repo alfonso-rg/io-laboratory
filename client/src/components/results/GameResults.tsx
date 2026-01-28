@@ -2,6 +2,21 @@ import { useMemo } from 'react';
 import { useGameStore } from '../../stores/gameStore';
 import { useSocket } from '../../hooks/useSocket';
 import { QuantityChart } from '../game/QuantityChart';
+import {
+  FIRM_COLORS,
+  getNumFirms,
+  getCompetitionMode,
+  getFirmConfig,
+} from '../../types/game';
+
+interface FirmSummary {
+  firmId: number;
+  totalProfit: number;
+  avgQuantity: number;
+  nashQuantity: number;
+  quantityDeviation: number;
+  model: string;
+}
 
 export function GameResults() {
   const { gameState } = useGameStore();
@@ -10,37 +25,71 @@ export function GameResults() {
   const summary = useMemo(() => {
     if (!gameState || gameState.rounds.length === 0) return null;
 
-    const { rounds, nashEquilibrium } = gameState;
+    const { config, rounds, nashEquilibrium, nPolyEquilibrium } = gameState;
+    const numFirms = getNumFirms(config);
     const n = rounds.length;
 
-    const totalFirm1Profit = rounds.reduce((sum, r) => sum + r.firm1Profit, 0);
-    const totalFirm2Profit = rounds.reduce((sum, r) => sum + r.firm2Profit, 0);
-    const avgFirm1Quantity = rounds.reduce((sum, r) => sum + r.firm1Quantity, 0) / n;
-    const avgFirm2Quantity = rounds.reduce((sum, r) => sum + r.firm2Quantity, 0) / n;
+    // Calculate per-firm statistics
+    const firmSummaries: FirmSummary[] = [];
+    let totalProfit = 0;
+    let nashTotalProfit = 0;
+
+    for (let i = 1; i <= numFirms; i++) {
+      const firmConfig = getFirmConfig(config, i);
+
+      // Get firm's data from rounds
+      const firmTotalProfit = rounds.reduce((sum, round) => {
+        if (round.firmResults) {
+          const firmResult = round.firmResults.find(f => f.firmId === i);
+          return sum + (firmResult?.profit ?? 0);
+        }
+        // Fallback to legacy fields
+        return sum + (i === 1 ? round.firm1Profit : i === 2 ? round.firm2Profit : 0);
+      }, 0);
+
+      const firmAvgQuantity = rounds.reduce((sum, round) => {
+        if (round.firmResults) {
+          const firmResult = round.firmResults.find(f => f.firmId === i);
+          return sum + (firmResult?.quantity ?? 0);
+        }
+        return sum + (i === 1 ? round.firm1Quantity : i === 2 ? round.firm2Quantity : 0);
+      }, 0) / n;
+
+      // Get Nash equilibrium quantity for this firm
+      const nashQty = nPolyEquilibrium?.firms.find(f => f.firmId === i)?.quantity
+        ?? (i === 1 ? nashEquilibrium.firm1Quantity : i === 2 ? nashEquilibrium.firm2Quantity : 0);
+
+      const nashProfit = nPolyEquilibrium?.firms.find(f => f.firmId === i)?.profit
+        ?? (i === 1 ? nashEquilibrium.firm1Profit : i === 2 ? nashEquilibrium.firm2Profit : 0);
+
+      firmSummaries.push({
+        firmId: i,
+        totalProfit: firmTotalProfit,
+        avgQuantity: firmAvgQuantity,
+        nashQuantity: nashQty,
+        quantityDeviation: Math.abs(firmAvgQuantity - nashQty),
+        model: firmConfig.model,
+      });
+
+      totalProfit += firmTotalProfit;
+      nashTotalProfit += nashProfit;
+    }
+
     const avgMarketPrice = rounds.reduce((sum, r) => sum + r.marketPrice, 0) / n;
+    const actualAvgProfit = totalProfit / n;
 
-    const firm1QuantityDeviation = Math.abs(avgFirm1Quantity - nashEquilibrium.firm1Quantity);
-    const firm2QuantityDeviation = Math.abs(avgFirm2Quantity - nashEquilibrium.firm2Quantity);
-
-    const nashTotalProfit = nashEquilibrium.firm1Profit + nashEquilibrium.firm2Profit;
-    const actualTotalProfit = (totalFirm1Profit + totalFirm2Profit) / n;
+    // Find winner(s)
+    const maxProfit = Math.max(...firmSummaries.map(f => f.totalProfit));
+    const winners = firmSummaries.filter(f => f.totalProfit === maxProfit);
 
     return {
-      totalFirm1Profit,
-      totalFirm2Profit,
-      avgFirm1Quantity,
-      avgFirm2Quantity,
+      firmSummaries,
       avgMarketPrice,
-      firm1QuantityDeviation,
-      firm2QuantityDeviation,
       nashTotalProfit,
-      actualTotalProfit,
-      winner:
-        totalFirm1Profit > totalFirm2Profit
-          ? 'Firm 1'
-          : totalFirm1Profit < totalFirm2Profit
-          ? 'Firm 2'
-          : 'Tie',
+      actualAvgProfit,
+      totalProfit,
+      winners,
+      numFirms,
     };
   }, [gameState]);
 
@@ -52,7 +101,9 @@ export function GameResults() {
     );
   }
 
-  const { config, rounds, nashEquilibrium } = gameState;
+  const { config, rounds, nashEquilibrium, nPolyEquilibrium } = gameState;
+  const numFirms = summary.numFirms;
+  const competitionMode = getCompetitionMode(config);
 
   return (
     <div className="max-w-6xl mx-auto p-6">
@@ -70,77 +121,60 @@ export function GameResults() {
       <div className="bg-gradient-to-r from-yellow-400 to-orange-500 text-white p-6 rounded-lg shadow mb-6">
         <div className="text-center">
           <h2 className="text-2xl font-bold mb-2">
-            {summary.winner === 'Tie' ? 'Tie Game!' : `${summary.winner} Wins!`}
+            {summary.winners.length > 1
+              ? `Tie: ${summary.winners.map(w => `Firm ${w.firmId}`).join(' & ')}!`
+              : `Firm ${summary.winners[0].firmId} Wins!`}
           </h2>
           <p className="text-lg">
             After {rounds.length} rounds of competition
+            {summary.winners.length === 1 && (
+              <span> with ${summary.winners[0].totalProfit.toFixed(2)} total profit</span>
+            )}
           </p>
         </div>
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        {/* Firm 1 Summary */}
-        <div className="bg-blue-50 p-6 rounded-lg shadow">
-          <h2 className="text-xl font-semibold text-blue-800 mb-4">
-            Firm 1 ({config.firm1Model})
-          </h2>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span>Total Profit:</span>
-              <span className="font-bold text-blue-600">{summary.totalFirm1Profit.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Average Quantity:</span>
-              <span className="font-medium">{summary.avgFirm1Quantity.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Nash Quantity:</span>
-              <span className="font-medium">{nashEquilibrium.firm1Quantity.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Deviation from Nash:</span>
-              <span
-                className={`font-medium ${
-                  summary.firm1QuantityDeviation < 2 ? 'text-green-600' : 'text-orange-600'
-                }`}
-              >
-                {summary.firm1QuantityDeviation.toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Firm 2 Summary */}
-        <div className="bg-red-50 p-6 rounded-lg shadow">
-          <h2 className="text-xl font-semibold text-red-800 mb-4">
-            Firm 2 ({config.firm2Model})
-          </h2>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span>Total Profit:</span>
-              <span className="font-bold text-red-600">{summary.totalFirm2Profit.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Average Quantity:</span>
-              <span className="font-medium">{summary.avgFirm2Quantity.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Nash Quantity:</span>
-              <span className="font-medium">{nashEquilibrium.firm2Quantity.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Deviation from Nash:</span>
-              <span
-                className={`font-medium ${
-                  summary.firm2QuantityDeviation < 2 ? 'text-green-600' : 'text-orange-600'
-                }`}
-              >
-                {summary.firm2QuantityDeviation.toFixed(2)}
-              </span>
+      {/* Firm Summary Cards - Dynamic for N firms */}
+      <div className={`grid gap-4 mb-6 ${
+        numFirms <= 2 ? 'grid-cols-1 md:grid-cols-2' :
+        numFirms <= 3 ? 'grid-cols-1 md:grid-cols-3' :
+        numFirms <= 4 ? 'grid-cols-2 md:grid-cols-4' :
+        'grid-cols-2 md:grid-cols-3 lg:grid-cols-5'
+      }`}>
+        {summary.firmSummaries.map((firm, idx) => (
+          <div
+            key={firm.firmId}
+            className="p-4 rounded-lg shadow"
+            style={{ backgroundColor: `${FIRM_COLORS[idx]}15`, borderLeft: `4px solid ${FIRM_COLORS[idx]}` }}
+          >
+            <h2 className="text-lg font-semibold mb-3" style={{ color: FIRM_COLORS[idx] }}>
+              Firm {firm.firmId}
+            </h2>
+            <div className="text-xs text-gray-500 mb-2">{firm.model}</div>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span>Total Profit:</span>
+                <span className="font-bold" style={{ color: FIRM_COLORS[idx] }}>
+                  {firm.totalProfit.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Avg {competitionMode === 'bertrand' ? 'Price' : 'Qty'}:</span>
+                <span className="font-medium">{firm.avgQuantity.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Nash {competitionMode === 'bertrand' ? 'Price' : 'Qty'}:</span>
+                <span className="font-medium">{firm.nashQuantity.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Deviation:</span>
+                <span className={`font-medium ${firm.quantityDeviation < 2 ? 'text-green-600' : 'text-orange-600'}`}>
+                  {firm.quantityDeviation.toFixed(2)}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+        ))}
       </div>
 
       {/* Market Summary */}
@@ -150,7 +184,9 @@ export function GameResults() {
           <div className="text-center">
             <div className="text-sm text-gray-600">Avg Market Price</div>
             <div className="text-xl font-bold">{summary.avgMarketPrice.toFixed(2)}</div>
-            <div className="text-sm text-gray-500">Nash: {nashEquilibrium.marketPrice.toFixed(2)}</div>
+            <div className="text-sm text-gray-500">
+              Nash: {(nPolyEquilibrium?.avgMarketPrice ?? nashEquilibrium.marketPrice).toFixed(2)}
+            </div>
           </div>
           <div className="text-center">
             <div className="text-sm text-gray-600">Nash Profit (per round)</div>
@@ -158,18 +194,18 @@ export function GameResults() {
           </div>
           <div className="text-center">
             <div className="text-sm text-gray-600">Actual Avg Profit</div>
-            <div className="text-xl font-bold">{summary.actualTotalProfit.toFixed(2)}</div>
+            <div className="text-xl font-bold">{summary.actualAvgProfit.toFixed(2)}</div>
           </div>
           <div className="text-center">
             <div className="text-sm text-gray-600">Efficiency</div>
             <div
               className={`text-xl font-bold ${
-                summary.actualTotalProfit >= summary.nashTotalProfit
+                summary.actualAvgProfit >= summary.nashTotalProfit
                   ? 'text-green-600'
                   : 'text-red-600'
               }`}
             >
-              {((summary.actualTotalProfit / summary.nashTotalProfit) * 100).toFixed(1)}%
+              {((summary.actualAvgProfit / summary.nashTotalProfit) * 100).toFixed(1)}%
             </div>
           </div>
         </div>
@@ -177,81 +213,103 @@ export function GameResults() {
 
       {/* Quantity Chart */}
       <div className="bg-white p-6 rounded-lg shadow mb-6">
-        <h2 className="text-xl font-semibold mb-4">Quantity Evolution</h2>
-        <QuantityChart rounds={rounds} nashEquilibrium={nashEquilibrium} />
+        <h2 className="text-xl font-semibold mb-4">
+          {competitionMode === 'bertrand' ? 'Price' : 'Quantity'} Evolution
+        </h2>
+        <QuantityChart
+          rounds={rounds}
+          nashEquilibrium={nashEquilibrium}
+          nPolyEquilibrium={nPolyEquilibrium}
+          numFirms={numFirms}
+          competitionMode={competitionMode}
+        />
       </div>
 
-      {/* Full Results Table */}
+      {/* Full Results Table - Dynamic for N firms */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h2 className="text-xl font-semibold mb-4">Detailed Round History</h2>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b bg-gray-50">
-                <th className="px-4 py-3 text-left">Round</th>
-                <th className="px-4 py-3 text-right text-blue-600">Firm 1 Qty</th>
-                <th className="px-4 py-3 text-right text-red-600">Firm 2 Qty</th>
-                <th className="px-4 py-3 text-right">Total Qty</th>
-                <th className="px-4 py-3 text-right">Price</th>
-                <th className="px-4 py-3 text-right text-blue-600">Firm 1 Profit</th>
-                <th className="px-4 py-3 text-right text-red-600">Firm 2 Profit</th>
+                <th className="px-3 py-3 text-left">Round</th>
+                {Array.from({ length: numFirms }, (_, i) => (
+                  <th key={`q${i + 1}`} className="px-3 py-3 text-right" style={{ color: FIRM_COLORS[i] }}>
+                    {competitionMode === 'bertrand' ? `p${i + 1}` : `q${i + 1}`}
+                  </th>
+                ))}
+                <th className="px-3 py-3 text-right">Price</th>
+                {Array.from({ length: numFirms }, (_, i) => (
+                  <th key={`profit${i + 1}`} className="px-3 py-3 text-right" style={{ color: FIRM_COLORS[i] }}>
+                    π{i + 1}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {rounds.map((round) => (
                 <tr key={round.roundNumber} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-2 font-medium">{round.roundNumber}</td>
-                  <td className="px-4 py-2 text-right text-blue-600">
-                    {round.firm1Quantity.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2 text-right text-red-600">
-                    {round.firm2Quantity.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2 text-right">{round.totalQuantity.toFixed(2)}</td>
-                  <td className="px-4 py-2 text-right">{round.marketPrice.toFixed(2)}</td>
-                  <td className="px-4 py-2 text-right text-blue-600">
-                    {round.firm1Profit.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2 text-right text-red-600">
-                    {round.firm2Profit.toFixed(2)}
-                  </td>
+                  <td className="px-3 py-2 font-medium">{round.roundNumber}</td>
+                  {Array.from({ length: numFirms }, (_, i) => {
+                    const firmId = i + 1;
+                    const firmResult = round.firmResults?.find(f => f.firmId === firmId);
+                    const value = competitionMode === 'bertrand'
+                      ? (firmResult?.price ?? round.marketPrices?.[i] ?? round.marketPrice)
+                      : (firmResult?.quantity ?? (firmId === 1 ? round.firm1Quantity : firmId === 2 ? round.firm2Quantity : 0));
+                    return (
+                      <td key={`q${firmId}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                        {value.toFixed(2)}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-2 text-right">{round.marketPrice.toFixed(2)}</td>
+                  {Array.from({ length: numFirms }, (_, i) => {
+                    const firmId = i + 1;
+                    const firmResult = round.firmResults?.find(f => f.firmId === firmId);
+                    const profit = firmResult?.profit ?? (firmId === 1 ? round.firm1Profit : firmId === 2 ? round.firm2Profit : 0);
+                    return (
+                      <td key={`profit${firmId}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                        {profit.toFixed(2)}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr className="bg-gray-100 font-bold">
-                <td className="px-4 py-3">Total</td>
-                <td className="px-4 py-3 text-right text-blue-600">
-                  {summary.avgFirm1Quantity.toFixed(2)} avg
-                </td>
-                <td className="px-4 py-3 text-right text-red-600">
-                  {summary.avgFirm2Quantity.toFixed(2)} avg
-                </td>
-                <td className="px-4 py-3 text-right">-</td>
-                <td className="px-4 py-3 text-right">{summary.avgMarketPrice.toFixed(2)} avg</td>
-                <td className="px-4 py-3 text-right text-blue-600">
-                  {summary.totalFirm1Profit.toFixed(2)}
-                </td>
-                <td className="px-4 py-3 text-right text-red-600">
-                  {summary.totalFirm2Profit.toFixed(2)}
-                </td>
+                <td className="px-3 py-3">Avg</td>
+                {summary.firmSummaries.map((firm, idx) => (
+                  <td key={`avg-q${firm.firmId}`} className="px-3 py-3 text-right" style={{ color: FIRM_COLORS[idx] }}>
+                    {firm.avgQuantity.toFixed(2)}
+                  </td>
+                ))}
+                <td className="px-3 py-3 text-right">{summary.avgMarketPrice.toFixed(2)}</td>
+                {summary.firmSummaries.map((firm, idx) => (
+                  <td key={`total-profit${firm.firmId}`} className="px-3 py-3 text-right" style={{ color: FIRM_COLORS[idx] }}>
+                    {firm.totalProfit.toFixed(2)}
+                  </td>
+                ))}
               </tr>
               <tr className="bg-blue-50">
-                <td className="px-4 py-3 font-medium">Nash Eq.</td>
-                <td className="px-4 py-3 text-right text-blue-600">
-                  {nashEquilibrium.firm1Quantity.toFixed(2)}
+                <td className="px-3 py-3 font-medium">Nash</td>
+                {summary.firmSummaries.map((firm, idx) => (
+                  <td key={`nash-q${firm.firmId}`} className="px-3 py-3 text-right" style={{ color: FIRM_COLORS[idx] }}>
+                    {firm.nashQuantity.toFixed(2)}
+                  </td>
+                ))}
+                <td className="px-3 py-3 text-right">
+                  {(nPolyEquilibrium?.avgMarketPrice ?? nashEquilibrium.marketPrice).toFixed(2)}
                 </td>
-                <td className="px-4 py-3 text-right text-red-600">
-                  {nashEquilibrium.firm2Quantity.toFixed(2)}
-                </td>
-                <td className="px-4 py-3 text-right">{nashEquilibrium.totalQuantity.toFixed(2)}</td>
-                <td className="px-4 py-3 text-right">{nashEquilibrium.marketPrice.toFixed(2)}</td>
-                <td className="px-4 py-3 text-right text-blue-600">
-                  {nashEquilibrium.firm1Profit.toFixed(2)}
-                </td>
-                <td className="px-4 py-3 text-right text-red-600">
-                  {nashEquilibrium.firm2Profit.toFixed(2)}
-                </td>
+                {summary.firmSummaries.map((firm, idx) => {
+                  const nashProfit = nPolyEquilibrium?.firms.find(f => f.firmId === firm.firmId)?.profit
+                    ?? (firm.firmId === 1 ? nashEquilibrium.firm1Profit : firm.firmId === 2 ? nashEquilibrium.firm2Profit : 0);
+                  return (
+                    <td key={`nash-profit${firm.firmId}`} className="px-3 py-3 text-right" style={{ color: FIRM_COLORS[idx] }}>
+                      {nashProfit.toFixed(2)}
+                    </td>
+                  );
+                })}
               </tr>
             </tfoot>
           </table>

@@ -279,7 +279,7 @@ export function GameBoard() {
         </div>
       )}
 
-      {/* Completed Replications Summary */}
+      {/* Completed Replications Summary - Dynamic for N firms */}
       {replications && replications.length > 0 && (
         <div className="bg-white p-6 rounded-lg shadow mt-6">
           <h2 className="text-xl font-semibold mb-4">Completed Replications</h2>
@@ -287,33 +287,61 @@ export function GameBoard() {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="px-4 py-2 text-left">Rep #</th>
-                  <th className="px-4 py-2 text-right text-blue-600">Avg q1</th>
-                  <th className="px-4 py-2 text-right text-red-600">Avg q2</th>
-                  <th className="px-4 py-2 text-right">Avg Price</th>
-                  <th className="px-4 py-2 text-right text-blue-600">Total Profit 1</th>
-                  <th className="px-4 py-2 text-right text-red-600">Total Profit 2</th>
+                  <th className="px-3 py-2 text-left">Rep #</th>
+                  {Array.from({ length: numFirms }, (_, i) => (
+                    <th key={`avg-q${i + 1}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                      Avg {competitionMode === 'bertrand' ? 'p' : 'q'}{i + 1}
+                    </th>
+                  ))}
+                  <th className="px-3 py-2 text-right">Avg Price</th>
+                  {Array.from({ length: numFirms }, (_, i) => (
+                    <th key={`profit${i + 1}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                      π{i + 1}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {replications.map((rep) => (
-                  <tr key={rep.replicationNumber} className="border-b hover:bg-gray-50">
-                    <td className="px-4 py-2">{rep.replicationNumber}</td>
-                    <td className="px-4 py-2 text-right text-blue-600">
-                      {rep.summary.avgFirm1Quantity.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-2 text-right text-red-600">
-                      {rep.summary.avgFirm2Quantity.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-2 text-right">{rep.summary.avgMarketPrice.toFixed(2)}</td>
-                    <td className="px-4 py-2 text-right text-blue-600">
-                      {rep.summary.totalFirm1Profit.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-2 text-right text-red-600">
-                      {rep.summary.totalFirm2Profit.toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
+                {replications.map((rep) => {
+                  // Calculate per-firm averages from rounds data
+                  const firmAvgs: Record<number, { avgQty: number; totalProfit: number }> = {};
+                  for (let i = 1; i <= numFirms; i++) {
+                    const rounds = rep.rounds || [];
+                    const n = rounds.length || 1;
+                    const totalQty = rounds.reduce((sum, r) => {
+                      if (r.firmResults) {
+                        const fr = r.firmResults.find((f: { firmId: number }) => f.firmId === i);
+                        return sum + (fr?.quantity ?? 0);
+                      }
+                      return sum + (i === 1 ? r.firm1Quantity : i === 2 ? r.firm2Quantity : 0);
+                    }, 0);
+                    const totalProfit = rounds.reduce((sum, r) => {
+                      if (r.firmResults) {
+                        const fr = r.firmResults.find((f: { firmId: number }) => f.firmId === i);
+                        return sum + (fr?.profit ?? 0);
+                      }
+                      return sum + (i === 1 ? r.firm1Profit : i === 2 ? r.firm2Profit : 0);
+                    }, 0);
+                    firmAvgs[i] = { avgQty: totalQty / n, totalProfit };
+                  }
+
+                  return (
+                    <tr key={rep.replicationNumber} className="border-b hover:bg-gray-50">
+                      <td className="px-3 py-2">{rep.replicationNumber}</td>
+                      {Array.from({ length: numFirms }, (_, i) => (
+                        <td key={`avg-q${i + 1}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                          {firmAvgs[i + 1].avgQty.toFixed(2)}
+                        </td>
+                      ))}
+                      <td className="px-3 py-2 text-right">{rep.summary.avgMarketPrice.toFixed(2)}</td>
+                      {Array.from({ length: numFirms }, (_, i) => (
+                        <td key={`profit${i + 1}`} className="px-3 py-2 text-right" style={{ color: FIRM_COLORS[i] }}>
+                          {firmAvgs[i + 1].totalProfit.toFixed(2)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
