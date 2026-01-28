@@ -196,16 +196,19 @@ export interface ServerToClientEvents {
 
 // Available LLM models with pricing (per 1M tokens)
 export const AVAILABLE_MODELS = [
-  // GPT-4.1 series (newer than 4o)
-  { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', inputPrice: 0.10, outputPrice: 0.40, description: 'Fastest & cheapest' },
-  { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', inputPrice: 0.40, outputPrice: 1.60, description: 'Good balance' },
-  { value: 'gpt-4.1', label: 'GPT-4.1', inputPrice: 2.00, outputPrice: 8.00, description: 'High capability' },
-  // GPT-4o series (stable)
+  // GPT-5 series
+  { value: 'gpt-5-nano', label: 'GPT-5 Nano', inputPrice: 0.05, outputPrice: 0.40, description: 'Fastest & cheapest' },
+  { value: 'gpt-5-mini', label: 'GPT-5 Mini', inputPrice: 0.25, outputPrice: 2.00, description: 'Good balance' },
+  { value: 'gpt-5', label: 'GPT-5', inputPrice: 1.25, outputPrice: 10.00, description: 'High capability' },
+  { value: 'gpt-5.2', label: 'GPT-5.2', inputPrice: 1.75, outputPrice: 14.00, description: 'Latest flagship' },
+  // GPT-5 chat-latest variants (alternative API names)
+  { value: 'gpt-5-chat-latest', label: 'GPT-5 Chat', inputPrice: 1.25, outputPrice: 10.00, description: 'GPT-5 latest chat' },
+  { value: 'gpt-5.2-chat-latest', label: 'GPT-5.2 Chat', inputPrice: 1.75, outputPrice: 14.00, description: 'GPT-5.2 latest chat' },
+  // GPT-4 series (fallback)
   { value: 'gpt-4o-mini', label: 'GPT-4o Mini', inputPrice: 0.15, outputPrice: 0.60, description: 'Fast & affordable' },
-  { value: 'gpt-4o', label: 'GPT-4o', inputPrice: 2.50, outputPrice: 10.00, description: 'Flagship model' },
-  // O-series (reasoning models)
-  { value: 'o4-mini', label: 'O4 Mini', inputPrice: 1.10, outputPrice: 4.40, description: 'Reasoning model' },
-  { value: 'o3-mini', label: 'O3 Mini', inputPrice: 1.10, outputPrice: 4.40, description: 'Reasoning model' },
+  { value: 'gpt-4o', label: 'GPT-4o', inputPrice: 2.50, outputPrice: 10.00, description: 'Previous flagship' },
+  { value: 'gpt-4.1', label: 'GPT-4.1', inputPrice: 2.00, outputPrice: 8.00, description: 'GPT-4.1 standard' },
+  { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', inputPrice: 0.40, outputPrice: 1.60, description: 'GPT-4.1 mini' },
 ];
 
 // Competition modes
@@ -267,8 +270,8 @@ export const DEFAULT_CONFIG: CournotConfig = {
   firm2QuadraticCost: 0, // d2
   totalRounds: 10,
   numReplications: 1,
-  firm1Model: 'gpt-4o-mini',
-  firm2Model: 'gpt-4o-mini',
+  firm1Model: 'gpt-5-nano',
+  firm2Model: 'gpt-5-nano',
   firm1Info: { ...DEFAULT_INFO_DISCLOSURE },
   firm2Info: { ...DEFAULT_INFO_DISCLOSURE },
   communication: { ...DEFAULT_COMMUNICATION },
