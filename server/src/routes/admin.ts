@@ -1,13 +1,32 @@
 import { Router, Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { GameResultModel } from '../models/GameResult';
 import { ApiResponse, GameStats, GameResultData } from '../types';
 import { logger } from '../config/logger';
 
 const router = Router();
 
+// Check if MongoDB is connected
+function isMongoConnected(): boolean {
+  return mongoose.connection.readyState === 1;
+}
+
 // Get all game results with pagination
 router.get('/games', async (req: Request, res: Response) => {
   try {
+    // Check MongoDB connection
+    if (!isMongoConnected()) {
+      res.json({
+        success: true,
+        data: {
+          games: [],
+          pagination: { page: 1, limit: 10, total: 0, pages: 0 },
+        },
+        warning: 'Database not connected - no historical data available',
+      });
+      return;
+    }
+
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
@@ -50,6 +69,14 @@ router.get('/games', async (req: Request, res: Response) => {
 // Get a specific game by ID
 router.get('/games/:gameId', async (req: Request, res: Response) => {
   try {
+    if (!isMongoConnected()) {
+      res.status(503).json({
+        success: false,
+        error: 'Database not connected',
+      });
+      return;
+    }
+
     const game = await GameResultModel.findOne({ gameId: req.params.gameId }).lean();
 
     if (!game) {
@@ -78,6 +105,14 @@ router.get('/games/:gameId', async (req: Request, res: Response) => {
 // Delete a game
 router.delete('/games/:gameId', async (req: Request, res: Response) => {
   try {
+    if (!isMongoConnected()) {
+      res.status(503).json({
+        success: false,
+        error: 'Database not connected',
+      });
+      return;
+    }
+
     const result = await GameResultModel.deleteOne({ gameId: req.params.gameId });
 
     if (result.deletedCount === 0) {
@@ -104,6 +139,20 @@ router.delete('/games/:gameId', async (req: Request, res: Response) => {
 // Get game statistics
 router.get('/stats', async (_req: Request, res: Response) => {
   try {
+    if (!isMongoConnected()) {
+      res.json({
+        success: true,
+        data: {
+          totalGames: 0,
+          avgRoundsPerGame: 0,
+          avgNashDeviation: 0,
+          modelPerformance: [],
+        },
+        warning: 'Database not connected - no statistics available',
+      });
+      return;
+    }
+
     const totalGames = await GameResultModel.countDocuments();
 
     if (totalGames === 0) {
