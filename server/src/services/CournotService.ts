@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Server as SocketServer } from 'socket.io';
+import mongoose from 'mongoose';
 import {
   CournotConfig,
   GameState,
@@ -396,25 +397,30 @@ export class CournotService {
 
     // Save to database
     try {
-      const gameResult = new GameResultModel({
-        gameId: this.gameState.gameId,
-        config: this.gameState.config,
-        rounds: this.gameState.rounds,
-        replications: this.gameState.replications,
-        nashEquilibrium: this.gameState.nashEquilibrium,
-        cooperativeEquilibrium: this.gameState.cooperativeEquilibrium,
-        summary,
-        startedAt: this.gameState.startedAt,
-        completedAt: this.gameState.completedAt,
-      });
+      // Check if MongoDB is connected
+      if (mongoose.connection.readyState !== 1) {
+        logger.warn(`MongoDB not connected (state: ${mongoose.connection.readyState}), skipping save for game ${this.gameState.gameId}`);
+      } else {
+        const gameResult = new GameResultModel({
+          gameId: this.gameState.gameId,
+          config: this.gameState.config,
+          rounds: this.gameState.rounds,
+          replications: this.gameState.replications,
+          nashEquilibrium: this.gameState.nashEquilibrium,
+          cooperativeEquilibrium: this.gameState.cooperativeEquilibrium,
+          summary,
+          startedAt: this.gameState.startedAt,
+          completedAt: this.gameState.completedAt,
+        });
 
-      await gameResult.save();
-      logger.info(`Game results saved: ${this.gameState.gameId}`, {
-        numReplications: this.gameState.replications.length,
-        totalRounds: allRounds.length,
-      });
+        await gameResult.save();
+        logger.info(`Game results saved to MongoDB: ${this.gameState.gameId}`, {
+          numReplications: this.gameState.replications.length,
+          totalRounds: allRounds.length,
+        });
+      }
     } catch (error) {
-      logger.error('Error saving game results:', error);
+      logger.error(`Error saving game results for ${this.gameState.gameId}:`, error);
     }
 
     // Notify clients
