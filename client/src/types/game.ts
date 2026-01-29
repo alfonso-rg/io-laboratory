@@ -195,19 +195,22 @@ export interface ServerToClientEvents {
 }
 
 // Available LLM models with pricing (per 1M tokens)
-// GPT-5.2 models support reasoning effort levels: none, low, medium, high, xhigh
+// GPT-5.2 models support configurable reasoning effort levels: none, low, medium, high, xhigh
+// GPT-5-nano and GPT-5-mini have FIXED built-in reasoning that cannot be disabled
 export const AVAILABLE_MODELS = [
-  // GPT-5.2 series with different reasoning levels
-  { value: 'gpt-5-nano', label: 'GPT-5 Nano', inputPrice: 0.05, outputPrice: 0.40, description: 'Fastest & cheapest' },
-  { value: 'gpt-5-mini', label: 'GPT-5 Mini', inputPrice: 0.25, outputPrice: 2.00, description: 'Good balance' },
-  { value: 'gpt-5.2:none', label: 'GPT-5.2 (No reasoning)', inputPrice: 1.75, outputPrice: 14.00, description: 'Fast, no explicit reasoning' },
-  { value: 'gpt-5.2:low', label: 'GPT-5.2 (Low reasoning)', inputPrice: 1.75, outputPrice: 14.00, description: 'Light reasoning' },
-  { value: 'gpt-5.2:medium', label: 'GPT-5.2 (Medium reasoning)', inputPrice: 1.75, outputPrice: 14.00, description: 'Balanced reasoning' },
-  { value: 'gpt-5.2:high', label: 'GPT-5.2 (High reasoning)', inputPrice: 1.75, outputPrice: 14.00, description: 'Deep reasoning' },
+  // GPT-4 series - No reasoning, fastest responses
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini', inputPrice: 0.15, outputPrice: 0.60, description: 'Fast, no reasoning' },
+  { value: 'gpt-4o', label: 'GPT-4o', inputPrice: 2.50, outputPrice: 10.00, description: 'Previous flagship, no reasoning' },
+  // GPT-5.2 series - Configurable reasoning
+  { value: 'gpt-5.2:none', label: 'GPT-5.2 (No reasoning)', inputPrice: 1.75, outputPrice: 14.00, description: 'Fast, reasoning disabled' },
+  { value: 'gpt-5.2:low', label: 'GPT-5.2 (Low reasoning)', inputPrice: 1.75, outputPrice: 14.00, description: 'Light reasoning ~1.5x tokens' },
+  { value: 'gpt-5.2:medium', label: 'GPT-5.2 (Medium reasoning)', inputPrice: 1.75, outputPrice: 14.00, description: 'Balanced ~2.5x tokens' },
+  { value: 'gpt-5.2:high', label: 'GPT-5.2 (High reasoning)', inputPrice: 1.75, outputPrice: 14.00, description: 'Deep reasoning ~4x tokens' },
+  { value: 'gpt-5.2:xhigh', label: 'GPT-5.2 (XHigh reasoning)', inputPrice: 1.75, outputPrice: 14.00, description: 'Maximum reasoning ~8x tokens' },
   { value: 'gpt-5.2-pro', label: 'GPT-5.2 Pro', inputPrice: 3.50, outputPrice: 28.00, description: 'Hardest problems' },
-  // GPT-4 series (fallback)
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini', inputPrice: 0.15, outputPrice: 0.60, description: 'Fast & affordable' },
-  { value: 'gpt-4o', label: 'GPT-4o', inputPrice: 2.50, outputPrice: 10.00, description: 'Previous flagship' },
+  // GPT-5 legacy - FIXED reasoning (cannot be disabled)
+  { value: 'gpt-5-nano', label: 'GPT-5 Nano (Fixed avg reasoning)', inputPrice: 0.05, outputPrice: 0.40, description: 'Cheap but slower than expected' },
+  { value: 'gpt-5-mini', label: 'GPT-5 Mini (Fixed high reasoning)', inputPrice: 0.25, outputPrice: 2.00, description: 'Built-in high reasoning' },
 ];
 
 // Competition modes

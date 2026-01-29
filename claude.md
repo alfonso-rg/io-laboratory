@@ -26,12 +26,24 @@ Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 
 - **Limit-Pricing**: Análisis basado en Zanchettin (2006) para detectar regiones de monopolio y pricing predatorio (solo duopolio)
 
 ### Modelos LLM Disponibles
-- GPT-5 Nano - $0.05/$0.40 por 1M tokens (alto rendimiento, tareas simples) - usa Chat Completions API con `max_completion_tokens`
-- GPT-5 Mini - $0.25/$2.00 por 1M tokens (balance costo/capacidad) - usa Chat Completions API con `max_completion_tokens`
-- GPT-5.2 (niveles de razonamiento: none, low, medium, high, xhigh) - $1.75/$14.00 por 1M tokens - usa Responses API
-- GPT-5.2 Pro - $3.50/$28.00 por 1M tokens (problemas difíciles) - usa Responses API
-- GPT-4o Mini (por defecto) - $0.15/$0.60 por 1M tokens (rápido y económico) - usa Chat Completions API
-- GPT-4o - $2.50/$10.00 por 1M tokens (modelo anterior flagship) - usa Chat Completions API
+
+**Sin razonamiento (respuestas rápidas):**
+- GPT-4o Mini - $0.15/$0.60 por 1M tokens - Chat Completions API - Rápido y económico
+- GPT-4o - $2.50/$10.00 por 1M tokens - Chat Completions API - Flagship anterior
+- GPT-5.2:none - $1.75/$14.00 por 1M tokens - Responses API - Razonamiento desactivado
+
+**Con razonamiento configurable (GPT-5.2):**
+- GPT-5.2:low - $1.75/$14.00 - ~1.5x tokens de razonamiento
+- GPT-5.2:medium - $1.75/$14.00 - ~2.5x tokens de razonamiento
+- GPT-5.2:high - $1.75/$14.00 - ~4x tokens de razonamiento
+- GPT-5.2:xhigh - $1.75/$14.00 - ~8x tokens de razonamiento
+- GPT-5.2 Pro - $3.50/$28.00 - Para problemas muy difíciles
+
+**Con razonamiento FIJO (no configurable):**
+- GPT-5 Nano - $0.05/$0.40 - Razonamiento "Average" incorporado (más lento de lo esperado)
+- GPT-5 Mini - $0.25/$2.00 - Razonamiento "High" incorporado (similar a GPT-5.2:high)
+
+> **Nota importante:** GPT-5-nano y GPT-5-mini son modelos GPT-5 "legacy" con razonamiento incorporado que NO se puede desactivar. Aunque son más baratos, pueden ser más lentos que GPT-5.2:none o GPT-4o-mini.
 
 ### Estimación de Costes
 - Estimación automática de tokens y coste antes de ejecutar experimentos
@@ -366,9 +378,10 @@ Al hacer push a main, ambos servicios se despliegan automáticamente.
 ## Notas Técnicas
 
 ### Integración OpenAI
-- **Responses API**: Usada por TODOS los modelos GPT-5 (incluyendo nano, mini, 5.2, 5.2-pro)
-  - Soporta `reasoning_effort` para GPT-5.2 (none, low, medium, high, xhigh)
-  - GPT-5-nano/mini usan Responses API sin parámetro reasoning
+- **Responses API**: Usada por TODOS los modelos GPT-5 (nano, mini, 5.2, 5.2-pro)
+  - GPT-5.2: Soporta `reasoning: { effort: "none"|"low"|"medium"|"high"|"xhigh" }`
+  - GPT-5-nano/mini: NO soportan parámetro `reasoning` (tienen razonamiento fijo incorporado)
+  - GPT-5-nano/mini: NO soportan `temperature` (error si se incluye)
 - **Chat Completions API**: Usada solo por GPT-4o y GPT-4o-mini
   - Usa `max_tokens` y soporta `temperature: 0.7`
 
