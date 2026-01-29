@@ -6,6 +6,7 @@ import {
   GameState,
   RoundResult,
   ReplicationResult,
+  RealizedParameters,
   ServerToClientEvents,
   ClientToServerEvents,
   getNumFirms,
@@ -14,6 +15,7 @@ import {
 } from '../types';
 import { EconomicsService } from './EconomicsService';
 import { LLMService } from './LLMService';
+import { ParameterService } from './ParameterService';
 import { GameResultModel } from '../models/GameResult';
 import { logger } from '../config/logger';
 
@@ -22,6 +24,9 @@ export class CournotService {
   private llmService: LLMService;
   private gameState: GameState | null = null;
   private isPaused: boolean = false;
+  // Realized parameters for different variation modes
+  private fixedRealizedParams: RealizedParameters | null = null;
+  private replicationRealizedParams: RealizedParameters | null = null;
 
   constructor(io: SocketServer<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
@@ -41,6 +46,16 @@ export class CournotService {
   createGame(config: CournotConfig): GameState {
     const numFirms = getNumFirms(config);
     const mode = getCompetitionMode(config);
+
+    // Initialize fixed realized parameters if using 'fixed' variation (default)
+    const variation = config.parameterVariation || 'fixed';
+    if (variation === 'fixed' && ParameterService.hasRandomParameters(config)) {
+      this.fixedRealizedParams = ParameterService.drawAllParameters(config);
+      logger.info('Generated fixed realized parameters for game', this.fixedRealizedParams);
+    } else {
+      this.fixedRealizedParams = null;
+    }
+    this.replicationRealizedParams = null;
 
     // Calculate legacy Nash equilibrium (always Cournot duopoly for backward compatibility)
     const nashEquilibrium = EconomicsService.calculateNashEquilibrium(config);
@@ -177,6 +192,13 @@ export class CournotService {
       this.gameState.currentRound = 0;
       this.gameState.rounds = [];
 
+      // Generate per-replication parameters if needed
+      const variation = config.parameterVariation || 'fixed';
+      if (variation === 'per-replication' && ParameterService.hasRandomParameters(config)) {
+        this.replicationRealizedParams = ParameterService.drawAllParameters(config);
+        logger.info(`Generated per-replication parameters for replication ${replication}`, this.replicationRealizedParams);
+      }
+
       const replicationStartTime = new Date();
 
       this.io.emit('replication-started', {
@@ -246,24 +268,55 @@ export class CournotService {
   }
 
   /**
+   * Get realized parameters for the current round based on variation mode
+   */
+  private getRealizedParamsForRound(config: CournotConfig): RealizedParameters | undefined {
+    const variation = config.parameterVariation || 'fixed';
+
+    if (!ParameterService.hasRandomParameters(config)) {
+      return undefined; // No random parameters, use config directly
+    }
+
+    switch (variation) {
+      case 'per-round':
+        // Generate fresh parameters for each round
+        const roundParams = ParameterService.drawAllParameters(config);
+        logger.debug('Generated per-round parameters', roundParams);
+        return roundParams;
+      case 'per-replication':
+        return this.replicationRealizedParams || undefined;
+      case 'fixed':
+      default:
+        return this.fixedRealizedParams || undefined;
+    }
+  }
+
+  /**
    * Play a single round (supports N firms and both competition modes)
    */
   private async playRound(roundNumber: number): Promise<void> {
     if (!this.gameState) return;
 
-    const numFirms = getNumFirms(this.gameState.config);
-    const mode = getCompetitionMode(this.gameState.config);
+    const config = this.gameState.config;
+    const numFirms = getNumFirms(config);
+    const mode = getCompetitionMode(config);
 
     this.gameState.currentRound = roundNumber;
     this.io.emit('round-started', roundNumber);
 
-    logger.info(`Starting round ${roundNumber} (${numFirms} firms, ${mode} mode)`);
+    // Get realized parameters for this round
+    const realizedParams = this.getRealizedParamsForRound(config);
+
+    logger.info(`Starting round ${roundNumber} (${numFirms} firms, ${mode} mode)`, {
+      hasRealizedParams: !!realizedParams,
+      demandType: realizedParams?.demand?.type || 'linear',
+    });
 
     let communication: { firm: number; message: string }[] | undefined;
 
     try {
       // Communication phase (if enabled)
-      if (this.gameState.config.communication.allowCommunication) {
+      if (config.communication.allowCommunication) {
         this.io.emit('communication-started', roundNumber);
         logger.info(`Starting communication phase for round ${roundNumber}`);
 
@@ -276,11 +329,12 @@ export class CournotService {
         this.io.emit('llm-thinking', { firm: i, status: 'thinking' });
       }
 
-      // Get decisions from all firms
+      // Get decisions from all firms (passing realized parameters)
       const decisionsMap = await this.llmService.getAllDecisions(
-        this.gameState.config,
+        config,
         roundNumber,
-        this.gameState.rounds
+        this.gameState.rounds,
+        realizedParams
       );
 
       // Emit individual decisions
@@ -306,12 +360,18 @@ export class CournotService {
         roundPrompt: decision.roundPrompt,
       }));
 
-      // Calculate round results using N-poly method
+      // Calculate round results using N-poly method with realized parameters
       const roundResult = EconomicsService.calculateNPolyRoundResult(
         roundNumber,
         decisionsArray,
-        this.gameState.config
+        config,
+        realizedParams
       );
+
+      // Store realized parameters in round result
+      if (realizedParams) {
+        roundResult.realizedParameters = realizedParams;
+      }
 
       // Add communication to result if it occurred
       if (communication) {

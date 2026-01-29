@@ -1,6 +1,90 @@
 // Competition mode type
 export type CompetitionMode = 'cournot' | 'bertrand';
 
+// ============================================
+// RANDOM PARAMETERS & ALTERNATIVE DEMAND TYPES
+// ============================================
+
+// Distribution types for random parameters
+export type DistributionType = 'fixed' | 'uniform' | 'normal' | 'lognormal';
+
+// Parameter specification - can be fixed or random
+export interface ParameterSpec {
+  type: DistributionType;
+  value?: number;      // For 'fixed'
+  min?: number;        // For 'uniform'
+  max?: number;        // For 'uniform'
+  mean?: number;       // For 'normal' and 'lognormal'
+  stdDev?: number;     // For 'normal' and 'lognormal'
+}
+
+// Demand function types
+export type DemandFunctionType = 'linear' | 'isoelastic';
+
+// Linear demand config: P = a - b*Q
+export interface LinearDemandConfig {
+  type: 'linear';
+  intercept: ParameterSpec;  // a
+  slope: ParameterSpec;      // b
+}
+
+// Isoelastic demand config: P = A * Q^(-1/ε)
+export interface IsoelasticDemandConfig {
+  type: 'isoelastic';
+  scale: ParameterSpec;       // A (scale parameter)
+  elasticity: ParameterSpec;  // ε (price elasticity of demand, positive)
+}
+
+// Union type for demand configurations
+export type DemandConfig = LinearDemandConfig | IsoelasticDemandConfig;
+
+// Realized parameter values for a round
+export interface RealizedParameters {
+  demand: {
+    type: DemandFunctionType;
+    // Linear demand values
+    intercept?: number;
+    slope?: number;
+    // Isoelastic demand values
+    scale?: number;
+    elasticity?: number;
+  };
+  gamma?: number;
+  firmCosts: {
+    firmId: number;
+    linearCost: number;
+    quadraticCost: number;
+  }[];
+}
+
+// When to regenerate random parameters
+export type ParameterVariation = 'fixed' | 'per-replication' | 'per-round';
+
+// Firm cost specifications for random costs
+export interface FirmCostSpec {
+  linearCost: ParameterSpec;
+  quadraticCost: ParameterSpec;
+}
+
+// Helper to create a fixed parameter spec
+export function fixedParam(value: number): ParameterSpec {
+  return { type: 'fixed', value };
+}
+
+// Helper to create default linear demand config from legacy values
+export function createLinearDemandConfig(intercept: number, slope: number): LinearDemandConfig {
+  return {
+    type: 'linear',
+    intercept: fixedParam(intercept),
+    slope: fixedParam(slope),
+  };
+}
+
+// Helper to get demand function type from config
+export function getDemandFunctionType(config: CournotConfig): DemandFunctionType {
+  return config.demandFunction?.type || 'linear';
+}
+
 // Information disclosure options for LLMs
 export interface InformationDisclosure {
   revealDemandFunction: boolean;
@@ -52,6 +136,12 @@ export interface CournotConfig {
   firms?: FirmConfig[];
   minPrice?: number;
   maxPrice?: number;
+
+  // Random parameters and alternative demand functions
+  demandFunction?: DemandConfig;
+  gammaSpec?: ParameterSpec;
+  firmCostSpecs?: FirmCostSpec[];
+  parameterVariation?: ParameterVariation;
 }
 
 // Communication message between firms
@@ -86,6 +176,8 @@ export interface RoundResult {
   marketPrices?: number[];
   communication?: CommunicationMessage[];
   timestamp: Date;
+  // Realized parameters for this round (when using random parameters)
+  realizedParameters?: RealizedParameters;
 }
 
 // Nash equilibrium values (legacy duopoly)
@@ -111,6 +203,9 @@ export interface NPolyEquilibrium {
   marketPrices: number[];
   avgMarketPrice: number;
   totalProfit: number;
+  // For isoelastic demand, Nash equilibrium is not analytically calculable
+  calculable?: boolean;
+  message?: string;
 }
 
 // Limit-pricing analysis (Zanchettin 2006) - only for duopoly

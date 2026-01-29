@@ -15,7 +15,10 @@ import {
   getCompetitionMode,
   getFirmConfig,
   createDefaultFirms,
+  getDemandFunctionType,
+  fixedParam,
   FirmConfig,
+  DemandFunctionType,
 } from '../types/game';
 import { AdvancedSettings } from './AdvancedSettings';
 
@@ -27,6 +30,37 @@ export function HomePage() {
   const numFirms = getNumFirms(config);
   const gamma = getGamma(config);
   const competitionMode = getCompetitionMode(config);
+  const demandFunctionType = getDemandFunctionType(config);
+
+  // Handle demand function type change
+  const handleDemandTypeChange = (newType: DemandFunctionType) => {
+    if (newType === 'linear') {
+      setConfig({
+        demandFunction: {
+          type: 'linear',
+          intercept: fixedParam(config.demandIntercept),
+          slope: fixedParam(config.demandSlope),
+        },
+      });
+    } else {
+      // isoelastic: P = A * Q^(-1/ε), default A=100, ε=2
+      setConfig({
+        demandFunction: {
+          type: 'isoelastic',
+          scale: fixedParam(100),
+          elasticity: fixedParam(2),
+        },
+      });
+    }
+  };
+
+  // Get isoelastic parameters from config
+  const isoelasticScale = config.demandFunction?.type === 'isoelastic'
+    ? (config.demandFunction.scale.value ?? 100)
+    : 100;
+  const isoelasticElasticity = config.demandFunction?.type === 'isoelastic'
+    ? (config.demandFunction.elasticity.value ?? 2)
+    : 2;
 
   // Legacy equilibrium (for duopoly backward compatibility)
   const cooperativeEquilibrium = useMemo(() => calculateCooperativeEquilibrium(config), [config]);
@@ -267,39 +301,150 @@ export function HomePage() {
         {/* Demand Parameters */}
         <div className="bg-white p-6 rounded-lg shadow">
           <h2 className="text-xl font-semibold mb-4">Demand Function</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            {gamma < 1
-              ? `p_i = a - b×(q_i + ${gamma.toFixed(2)}×Σq_j)`
-              : 'P(Q) = a - b × Q'}
+
+          {/* Demand Type Selector */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Function Type</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="demandType"
+                  value="linear"
+                  checked={demandFunctionType === 'linear'}
+                  onChange={() => handleDemandTypeChange('linear')}
+                  disabled={isRunning}
+                  className="text-blue-600"
+                />
+                <span className="text-sm">Linear</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="demandType"
+                  value="isoelastic"
+                  checked={demandFunctionType === 'isoelastic'}
+                  onChange={() => handleDemandTypeChange('isoelastic')}
+                  disabled={isRunning}
+                  className="text-blue-600"
+                />
+                <span className="text-sm">Isoelastic</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Formula Display */}
+          <p className="text-sm text-gray-600 mb-4 font-mono bg-gray-50 p-2 rounded">
+            {demandFunctionType === 'linear'
+              ? (gamma < 1
+                  ? `p_i = a - b×(q_i + ${gamma.toFixed(2)}×Σq_j)`
+                  : 'P(Q) = a - b × Q')
+              : `P(Q) = A × Q^(-1/ε)`}
           </p>
 
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Demand Intercept (a)
-              </label>
-              <input
-                type="number"
-                value={config.demandIntercept}
-                onChange={(e) => setConfig({ demandIntercept: parseFloat(e.target.value) || 0 })}
-                className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
-                disabled={isRunning}
-              />
-            </div>
+            {demandFunctionType === 'linear' ? (
+              <>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Demand Intercept (a)
+                  </label>
+                  <input
+                    type="number"
+                    value={config.demandIntercept}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      setConfig({
+                        demandIntercept: val,
+                        demandFunction: {
+                          type: 'linear',
+                          intercept: fixedParam(val),
+                          slope: fixedParam(config.demandSlope),
+                        },
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    disabled={isRunning}
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Demand Slope (b)
-              </label>
-              <input
-                type="number"
-                step="0.1"
-                value={config.demandSlope}
-                onChange={(e) => setConfig({ demandSlope: parseFloat(e.target.value) || 0 })}
-                className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
-                disabled={isRunning}
-              />
-            </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Demand Slope (b)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={config.demandSlope}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      setConfig({
+                        demandSlope: val,
+                        demandFunction: {
+                          type: 'linear',
+                          intercept: fixedParam(config.demandIntercept),
+                          slope: fixedParam(val),
+                        },
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    disabled={isRunning}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Scale Parameter (A)
+                  </label>
+                  <input
+                    type="number"
+                    value={isoelasticScale}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 100;
+                      setConfig({
+                        demandFunction: {
+                          type: 'isoelastic',
+                          scale: fixedParam(val),
+                          elasticity: fixedParam(isoelasticElasticity),
+                        },
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    disabled={isRunning}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Scales the price level</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Price Elasticity (ε)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={isoelasticElasticity}
+                    onChange={(e) => {
+                      const val = Math.max(0.1, parseFloat(e.target.value) || 2);
+                      setConfig({
+                        demandFunction: {
+                          type: 'isoelastic',
+                          scale: fixedParam(isoelasticScale),
+                          elasticity: fixedParam(val),
+                        },
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    disabled={isRunning}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    ε &gt; 1: elastic demand, ε &lt; 1: inelastic demand
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -414,32 +559,41 @@ export function HomePage() {
             <h2 className="text-xl font-semibold mb-4 text-blue-800">
               Nash {competitionMode === 'bertrand' ? 'Bertrand' : 'Cournot'} Equilibrium
             </h2>
-            <div className="space-y-2 text-sm">
-              {nPolyEquilibrium.firms.map((firm, i) => (
-                <div key={firm.firmId} className="flex justify-between items-center">
-                  <span className={FIRM_COLOR_CLASSES[i]?.text || 'text-gray-600'}>
-                    Firm {firm.firmId}:
-                  </span>
-                  <span className="font-bold">
-                    q={firm.quantity.toFixed(2)}, π={firm.profit.toFixed(2)}
-                  </span>
-                </div>
-              ))}
-              <div className="pt-2 border-t mt-2">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Total Quantity:</span>
-                  <span className="font-bold">{nPolyEquilibrium.totalQuantity.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Avg Price:</span>
-                  <span className="font-bold">{nPolyEquilibrium.avgMarketPrice.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Total Profit:</span>
-                  <span className="font-bold">{nPolyEquilibrium.totalProfit.toFixed(2)}</span>
+            {nPolyEquilibrium.calculable === false ? (
+              <div className="text-center py-4">
+                <p className="text-gray-500 italic">N/A</p>
+                <p className="text-xs text-gray-400 mt-2">
+                  {nPolyEquilibrium.message || 'Nash equilibrium not analytically calculable for isoelastic demand'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2 text-sm">
+                {nPolyEquilibrium.firms.map((firm, i) => (
+                  <div key={firm.firmId} className="flex justify-between items-center">
+                    <span className={FIRM_COLOR_CLASSES[i]?.text || 'text-gray-600'}>
+                      Firm {firm.firmId}:
+                    </span>
+                    <span className="font-bold">
+                      q={firm.quantity.toFixed(2)}, π={firm.profit.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+                <div className="pt-2 border-t mt-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Total Quantity:</span>
+                    <span className="font-bold">{nPolyEquilibrium.totalQuantity.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Avg Price:</span>
+                    <span className="font-bold">{nPolyEquilibrium.avgMarketPrice.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Total Profit:</span>
+                    <span className="font-bold">{nPolyEquilibrium.totalProfit.toFixed(2)}</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 

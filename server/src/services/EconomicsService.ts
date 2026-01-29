@@ -6,10 +6,13 @@ import {
   NPolyEquilibrium,
   LimitPricingAnalysis,
   FirmRoundResult,
+  RealizedParameters,
+  DemandFunctionType,
   getNumFirms,
   getGamma,
   getCompetitionMode,
   getFirmConfig,
+  getDemandFunctionType,
 } from '../types';
 
 export class EconomicsService {
@@ -20,6 +23,72 @@ export class EconomicsService {
   static calculateMarketPrice(totalQuantity: number, config: CournotConfig): number {
     const price = config.demandIntercept - config.demandSlope * totalQuantity;
     return Math.max(0, price); // Price cannot be negative
+  }
+
+  /**
+   * Calculate market price with any demand function type using realized parameters.
+   * Supports both linear and isoelastic demand.
+   *
+   * Linear: P = a - b*Q
+   * Isoelastic: P = A * Q^(-1/ε)
+   */
+  static calculatePriceWithDemand(
+    totalQuantity: number,
+    demand: RealizedParameters['demand']
+  ): number {
+    if (demand.type === 'linear') {
+      const a = demand.intercept ?? 100;
+      const b = demand.slope ?? 1;
+      return Math.max(0, a - b * totalQuantity);
+    } else if (demand.type === 'isoelastic') {
+      const A = demand.scale ?? 100;
+      const epsilon = demand.elasticity ?? 2;
+      // P = A * Q^(-1/ε)
+      // When Q = 0, price is undefined (infinity), so return a large value
+      if (totalQuantity <= 0) {
+        return A * 1000; // Large price for zero quantity
+      }
+      return A * Math.pow(totalQuantity, -1 / epsilon);
+    }
+    return 0;
+  }
+
+  /**
+   * Calculate differentiated market price for firm i using realized parameters.
+   * For linear demand: p_i = a - b*(q_i + γ*Σq_j)
+   * For isoelastic demand: p_i = A * (q_i + γ*Σq_j)^(-1/ε)
+   */
+  static calculateDifferentiatedPriceWithDemand(
+    firmIndex: number,
+    quantities: number[],
+    demand: RealizedParameters['demand'],
+    gamma: number
+  ): number {
+    const n = quantities.length;
+    const ownQuantity = quantities[firmIndex];
+    let otherQuantitiesSum = 0;
+    for (let j = 0; j < n; j++) {
+      if (j !== firmIndex) {
+        otherQuantitiesSum += quantities[j];
+      }
+    }
+
+    // Effective quantity for this firm's price
+    const effectiveQ = ownQuantity + gamma * otherQuantitiesSum;
+
+    if (demand.type === 'linear') {
+      const a = demand.intercept ?? 100;
+      const b = demand.slope ?? 1;
+      return Math.max(0, a - b * effectiveQ);
+    } else if (demand.type === 'isoelastic') {
+      const A = demand.scale ?? 100;
+      const epsilon = demand.elasticity ?? 2;
+      if (effectiveQ <= 0) {
+        return A * 1000;
+      }
+      return A * Math.pow(effectiveQ, -1 / epsilon);
+    }
+    return 0;
   }
 
   /**
@@ -418,11 +487,34 @@ export class EconomicsService {
    *
    * This forms a linear system: A*q = B
    * where A[i][i] = 2(b + d_i) and A[i][j] = γb for i≠j
+   *
+   * Note: This method only works for linear demand. For isoelastic demand,
+   * returns an equilibrium with calculable=false.
    */
   static calculateNashCournotNFirms(config: CournotConfig): NPolyEquilibrium {
+    const demandType = getDemandFunctionType(config);
+    const numFirms = getNumFirms(config);
+
+    // For isoelastic demand, Nash equilibrium is not analytically calculable
+    if (demandType === 'isoelastic') {
+      return {
+        competitionMode: 'cournot',
+        firms: Array.from({ length: numFirms }, (_, i) => ({
+          firmId: i + 1,
+          quantity: NaN,
+          profit: NaN,
+        })),
+        totalQuantity: NaN,
+        marketPrices: [],
+        avgMarketPrice: NaN,
+        totalProfit: NaN,
+        calculable: false,
+        message: 'Nash equilibrium not analytically calculable for isoelastic demand',
+      };
+    }
+
     const { demandIntercept: a, demandSlope: b } = config;
     const gamma = getGamma(config);
-    const numFirms = getNumFirms(config);
 
     // Build coefficient matrix A and vector B
     const A: number[][] = [];
@@ -495,6 +587,7 @@ export class EconomicsService {
       marketPrices,
       avgMarketPrice,
       totalProfit,
+      calculable: true,
     };
   }
 
@@ -505,11 +598,35 @@ export class EconomicsService {
    * (Simplified for symmetric α case)
    *
    * FOC: ∂π_i/∂p_i = q_i + (p_i - MC_i) * ∂q_i/∂p_i = 0
+   *
+   * Note: This method only works for linear demand. For isoelastic demand,
+   * returns an equilibrium with calculable=false.
    */
   static calculateNashBertrandNFirms(config: CournotConfig): NPolyEquilibrium {
+    const demandType = getDemandFunctionType(config);
+    const numFirms = getNumFirms(config);
+
+    // For isoelastic demand, Nash equilibrium is not analytically calculable
+    if (demandType === 'isoelastic') {
+      return {
+        competitionMode: 'bertrand',
+        firms: Array.from({ length: numFirms }, (_, i) => ({
+          firmId: i + 1,
+          quantity: NaN,
+          price: NaN,
+          profit: NaN,
+        })),
+        totalQuantity: NaN,
+        marketPrices: [],
+        avgMarketPrice: NaN,
+        totalProfit: NaN,
+        calculable: false,
+        message: 'Nash equilibrium not analytically calculable for isoelastic demand',
+      };
+    }
+
     const { demandIntercept: a, demandSlope: b } = config;
     const gamma = getGamma(config);
-    const numFirms = getNumFirms(config);
 
     // For Bertrand with differentiation, we need γ < 1 for interior solution
     // With γ = 1 (homogeneous), Bertrand leads to p = MC (perfect competition)
@@ -562,6 +679,7 @@ export class EconomicsService {
         marketPrices,
         avgMarketPrice: price,
         totalProfit: firms.reduce((sum, f) => sum + f.profit, 0),
+        calculable: true,
       };
     }
 
@@ -647,6 +765,7 @@ export class EconomicsService {
       marketPrices: prices,
       avgMarketPrice: prices.reduce((sum, p) => sum + p, 0) / numFirms,
       totalProfit,
+      calculable: true,
     };
   }
 
@@ -735,16 +854,25 @@ export class EconomicsService {
   }
 
   /**
-   * Calculate round result for N firms
+   * Calculate round result for N firms.
+   * Supports both linear and isoelastic demand functions via realized parameters.
    */
   static calculateNPolyRoundResult(
     roundNumber: number,
     decisions: { firmId: number; quantity?: number; price?: number; reasoning?: string; systemPrompt?: string; roundPrompt?: string }[],
-    config: CournotConfig
+    config: CournotConfig,
+    realizedParams?: RealizedParameters
   ): RoundResult {
     const numFirms = getNumFirms(config);
     const mode = getCompetitionMode(config);
-    const gamma = getGamma(config);
+
+    // Use realized parameters if provided, otherwise fall back to config
+    const gamma = realizedParams?.gamma ?? getGamma(config);
+    const demand = realizedParams?.demand ?? {
+      type: 'linear' as DemandFunctionType,
+      intercept: config.demandIntercept,
+      slope: config.demandSlope,
+    };
 
     const firmResults: FirmRoundResult[] = [];
     const quantities: number[] = [];
@@ -774,7 +902,12 @@ export class EconomicsService {
     let totalQuantity = 0;
 
     for (let i = 0; i < numFirms; i++) {
-      const firmConfig = getFirmConfig(config, i + 1);
+      // Get costs from realized params or config
+      const realizedCost = realizedParams?.firmCosts?.find(c => c.firmId === i + 1);
+      const configFirm = getFirmConfig(config, i + 1);
+      const linearCost = realizedCost?.linearCost ?? configFirm.linearCost;
+      const quadraticCost = realizedCost?.quadraticCost ?? configFirm.quadraticCost;
+
       const decision = decisions.find(d => d.firmId === i + 1);
 
       let q_i: number;
@@ -782,10 +915,11 @@ export class EconomicsService {
 
       if (mode === 'cournot') {
         q_i = quantities[i];
-        p_i = this.calculateDifferentiatedPrice(i, quantities, config);
+        // Use demand-aware price calculation
+        p_i = this.calculateDifferentiatedPriceWithDemand(i, quantities, demand, gamma);
       } else {
         // Bertrand: price is the decision, calculate quantity from demand
-        p_i = prices[i] ?? firmConfig.linearCost;  // Default to MC if no price
+        p_i = prices[i] ?? linearCost;  // Default to MC if no price
 
         // Calculate quantity from demand function with differentiation
         let otherPricesSum = 0;
@@ -794,14 +928,24 @@ export class EconomicsService {
         }
         const avgOtherPrice = numFirms > 1 ? otherPricesSum / (numFirms - 1) : p_i;
 
-        // Simplified direct demand
-        q_i = Math.max(0, (config.demandIntercept - p_i + gamma * (avgOtherPrice - p_i)) / config.demandSlope);
+        // Calculate quantity based on demand type
+        if (demand.type === 'linear') {
+          const a = demand.intercept ?? config.demandIntercept;
+          const b = demand.slope ?? config.demandSlope;
+          q_i = Math.max(0, (a - p_i + gamma * (avgOtherPrice - p_i)) / b);
+        } else {
+          // Isoelastic: P = A * Q^(-1/ε), so Q = (P/A)^(-ε)
+          const A = demand.scale ?? 100;
+          const epsilon = demand.elasticity ?? 2;
+          // Approximate demand for Bertrand with isoelastic demand
+          q_i = Math.max(0, Math.pow(p_i / A, -epsilon));
+        }
       }
 
       totalQuantity += q_i;
       marketPrices.push(p_i);
 
-      const cost_i = this.calculateCost(q_i, firmConfig.linearCost, firmConfig.quadraticCost);
+      const cost_i = this.calculateCost(q_i, linearCost, quadraticCost);
       const profit_i = p_i * q_i - cost_i;
 
       firmResults.push({

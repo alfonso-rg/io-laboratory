@@ -1,10 +1,27 @@
 import { useState, useEffect } from 'react';
-import { FIRM_COLORS, AVAILABLE_MODELS } from '../../types/game';
+import { FIRM_COLORS, AVAILABLE_MODELS, DistributionType, ParameterSpec, DemandConfig, RealizedParameters } from '../../types/game';
 
 // API base URL - use the same URL as socket connection
 // In production (Vercel), fall back to Render backend if VITE_SOCKET_URL is not set
 const API_BASE_URL = import.meta.env.VITE_SOCKET_URL ||
   (window.location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://io-laboratory.onrender.com');
+
+// Helper function to format parameter specification for display
+function formatSpec(spec: ParameterSpec | undefined): string {
+  if (!spec) return 'N/A';
+  switch (spec.type) {
+    case 'fixed':
+      return `${spec.value ?? 'N/A'}`;
+    case 'uniform':
+      return `U(${spec.min}, ${spec.max})`;
+    case 'normal':
+      return `N(${spec.mean}, ${spec.stdDev})`;
+    case 'lognormal':
+      return `LogN(${spec.mean}, ${spec.stdDev})`;
+    default:
+      return 'N/A';
+  }
+}
 
 interface FirmRoundResult {
   firmId: number;
@@ -35,6 +52,7 @@ interface RoundResult {
   marketPrices?: number[];
   communication?: CommunicationMessage[];
   timestamp: string;
+  realizedParameters?: RealizedParameters;
 }
 
 interface ReplicationResult {
@@ -63,6 +81,11 @@ interface FirmConfig {
     revealRivalIsLLM: boolean;
     describeRivalAsHuman: boolean;
   };
+}
+
+interface FirmCostSpec {
+  linearCost: ParameterSpec;
+  quadraticCost: ParameterSpec;
 }
 
 interface FullGameConfig {
@@ -101,6 +124,11 @@ interface FullGameConfig {
   };
   customSystemPrompt?: string;
   customRoundPrompt?: string;
+  // Random parameters and alternative demand functions
+  demandFunction?: DemandConfig;
+  gammaSpec?: ParameterSpec;
+  firmCostSpecs?: FirmCostSpec[];
+  parameterVariation?: 'fixed' | 'per-replication' | 'per-round';
 }
 
 interface FullGameResult {
@@ -478,13 +506,56 @@ export function AdminPanel() {
                       <div className="font-medium">{selectedGame.config.numReplications || 1}</div>
                     </div>
                     <div className="bg-gray-50 p-3 rounded">
-                      <div className="text-gray-600">Demand: a</div>
-                      <div className="font-medium">{selectedGame.config.demandIntercept}</div>
+                      <div className="text-gray-600">Demand Type</div>
+                      <div className="font-medium capitalize">
+                        {selectedGame.config.demandFunction?.type || 'linear'}
+                      </div>
                     </div>
-                    <div className="bg-gray-50 p-3 rounded">
-                      <div className="text-gray-600">Demand: b</div>
-                      <div className="font-medium">{selectedGame.config.demandSlope}</div>
-                    </div>
+                    {/* Demand parameters - show differently based on type */}
+                    {(!selectedGame.config.demandFunction || selectedGame.config.demandFunction.type === 'linear') && (
+                      <>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-gray-600">Demand: a (intercept)</div>
+                          <div className="font-medium">
+                            {selectedGame.config.demandFunction?.type === 'linear'
+                              ? formatSpec(selectedGame.config.demandFunction.intercept)
+                              : selectedGame.config.demandIntercept}
+                          </div>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-gray-600">Demand: b (slope)</div>
+                          <div className="font-medium">
+                            {selectedGame.config.demandFunction?.type === 'linear'
+                              ? formatSpec(selectedGame.config.demandFunction.slope)
+                              : selectedGame.config.demandSlope}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {selectedGame.config.demandFunction?.type === 'isoelastic' && (
+                      <>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-gray-600">Scale (A)</div>
+                          <div className="font-medium">
+                            {formatSpec(selectedGame.config.demandFunction.scale)}
+                          </div>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-gray-600">Elasticity (ε)</div>
+                          <div className="font-medium">
+                            {formatSpec(selectedGame.config.demandFunction.elasticity)}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {selectedGame.config.parameterVariation && selectedGame.config.parameterVariation !== 'fixed' && (
+                      <div className="bg-yellow-50 p-3 rounded">
+                        <div className="text-gray-600">Parameter Variation</div>
+                        <div className="font-medium capitalize">
+                          {selectedGame.config.parameterVariation.replace('-', ' ')}
+                        </div>
+                      </div>
+                    )}
                     <div className="bg-gray-50 p-3 rounded">
                       <div className="text-gray-600">Communication</div>
                       <div className="font-medium">
@@ -629,6 +700,60 @@ export function AdminPanel() {
                               {/* Expanded Content */}
                               {isExpanded && (
                                 <div className="p-4 space-y-4">
+                                  {/* Realized Parameters (for random parameter experiments) */}
+                                  {round.realizedParameters && (
+                                    <div>
+                                      <div className="font-medium text-sm mb-2">Realized Parameters</div>
+                                      <div className="bg-yellow-50 rounded p-3 text-sm">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                          {round.realizedParameters.demand.type === 'linear' && (
+                                            <>
+                                              <div>
+                                                <span className="text-gray-600">a: </span>
+                                                <span className="font-medium">{round.realizedParameters.demand.intercept?.toFixed(2)}</span>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-600">b: </span>
+                                                <span className="font-medium">{round.realizedParameters.demand.slope?.toFixed(4)}</span>
+                                              </div>
+                                            </>
+                                          )}
+                                          {round.realizedParameters.demand.type === 'isoelastic' && (
+                                            <>
+                                              <div>
+                                                <span className="text-gray-600">A: </span>
+                                                <span className="font-medium">{round.realizedParameters.demand.scale?.toFixed(2)}</span>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-600">ε: </span>
+                                                <span className="font-medium">{round.realizedParameters.demand.elasticity?.toFixed(2)}</span>
+                                              </div>
+                                            </>
+                                          )}
+                                          {round.realizedParameters.gamma !== undefined && (
+                                            <div>
+                                              <span className="text-gray-600">γ: </span>
+                                              <span className="font-medium">{round.realizedParameters.gamma.toFixed(2)}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                        {round.realizedParameters.firmCosts && round.realizedParameters.firmCosts.length > 0 && (
+                                          <div className="mt-2 pt-2 border-t border-yellow-200">
+                                            <div className="text-xs text-gray-500 mb-1">Firm Costs:</div>
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                              {round.realizedParameters.firmCosts.map((fc) => (
+                                                <div key={fc.firmId} className="text-xs">
+                                                  <span style={{ color: FIRM_COLORS[fc.firmId - 1] }}>F{fc.firmId}:</span>{' '}
+                                                  c={fc.linearCost.toFixed(1)}, d={fc.quadraticCost.toFixed(3)}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
                                   {/* Communication Log */}
                                   {round.communication && round.communication.length > 0 && (
                                     <div>

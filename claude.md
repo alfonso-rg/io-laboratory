@@ -2,7 +2,7 @@
 
 ## Resumen del Proyecto
 
-Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 firmas controladas por modelos GPT compiten eligiendo cantidades (Cournot) o precios (Bertrand) en un juego repetido. Permite configurar diferenciación de productos, información asimétrica, comunicación entre firmas, y múltiples réplicas experimentales.
+Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 firmas controladas por modelos GPT compiten eligiendo cantidades (Cournot) o precios (Bertrand) en un juego repetido. Permite configurar diferenciación de productos, información asimétrica, comunicación entre firmas, múltiples réplicas experimentales, parámetros aleatorios y funciones de demanda alternativas.
 
 **URLs de producción:**
 - Frontend: https://io-laboratory.vercel.app
@@ -21,9 +21,22 @@ Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 
 - **Costes asimétricos**: Cada firma puede tener diferentes costes lineales y cuadráticos
 
 ### Análisis Económico
-- **Equilibrio Nash**: Calculado analíticamente para N firmas
+- **Equilibrio Nash**: Calculado analíticamente para N firmas (solo demanda lineal)
 - **Equilibrio Cooperativo**: Monopolio multiplanta
 - **Limit-Pricing**: Análisis basado en Zanchettin (2006) para detectar regiones de monopolio y pricing predatorio (solo duopolio)
+
+### Funciones de Demanda
+- **Lineal**: P = a - b×Q (por defecto)
+- **Isoelástica**: P = A × Q^(-1/ε)
+  - El equilibrio Nash no se calcula analíticamente para demanda isoelástica (se muestra "N/A")
+
+### Parámetros Aleatorios
+- **Distribuciones soportadas**: Fixed, Uniform, Normal, Log-normal
+- **Modos de variación**:
+  - Fixed: Mismo valor en todas las rondas y réplicas
+  - Per-replication: Se regeneran al inicio de cada réplica
+  - Per-round: Se regeneran cada ronda
+- **Parámetros configurables**: Demanda (a, b o A, ε), gamma (γ), costes por firma (c, d)
 
 ### Modelos LLM Disponibles
 
@@ -58,7 +71,7 @@ Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 
 
 ## Modelo Económico
 
-### Demanda Diferenciada (Singh & Vives)
+### Demanda Lineal Diferenciada (Singh & Vives)
 
 **Demanda inversa:**
 ```
@@ -69,6 +82,19 @@ p_i = α - q_i - γ * Σ(q_j, j≠i)
 ```
 q_i = (1/(1-γ²)) * [α - p_i - γ(α - p_j)]
 ```
+
+### Demanda Isoelástica
+
+**Precio de mercado:**
+```
+P = A × Q^(-1/ε)
+```
+Donde:
+- A: Parámetro de escala
+- ε: Elasticidad precio de la demanda (ε > 1)
+- Q: Cantidad total de mercado
+
+> **Nota**: El equilibrio Nash para demanda isoelástica no tiene solución analítica cerrada, por lo que se muestra "N/A" en la interfaz.
 
 ### Costes
 ```
@@ -122,7 +148,8 @@ io-laboratory/
 │   │   ├── services/
 │   │   │   ├── EconomicsService.ts  # Cálculos Nash N-poly, Bertrand, limit-pricing
 │   │   │   ├── LLMService.ts        # OpenAI integration + comunicación
-│   │   │   └── CournotService.ts    # Lógica del juego N-poly
+│   │   │   ├── CournotService.ts    # Lógica del juego N-poly
+│   │   │   └── ParameterService.ts  # Generación de parámetros aleatorios
 │   │   ├── socket/
 │   │   │   └── gameHandlers.ts      # Eventos Socket.io
 │   │   └── routes/
@@ -157,12 +184,13 @@ io-laboratory/
 - **Modo de competencia**: Cournot (cantidades) o Bertrand (precios)
 - **Número de firmas**: Slider 2-10
 - **Diferenciación de productos**: Slider γ (0-1)
-- Parámetros de demanda (a, b)
+- **Función de demanda**: Lineal (P = a - b×Q) o Isoelástica (P = A×Q^(-1/ε))
+- Parámetros de demanda según tipo seleccionado
 - Costes por firma (c_i, d_i) - cards dinámicas con colores
 - Selección de modelos LLM por firma con precios
 - Número de rondas y réplicas
 - **Estimación de coste** del experimento
-- Visualización de equilibrios Nash y Cooperativo
+- Visualización de equilibrios Nash y Cooperativo (N/A para isoelástica)
 - **Panel Limit-Pricing** (solo duopolio con γ < 1)
 
 ### 2. Opciones Avanzadas (AdvancedSettings.tsx)
@@ -180,6 +208,11 @@ io-laboratory/
   - Selector de firma para previsualizar prompt por firma
   - Editor de system prompt con variables disponibles
   - Botón "Copy to Editor" para personalizar el prompt predefinido
+- **Parámetros Aleatorios**:
+  - Modo de variación (fixed, per-replication, per-round)
+  - Configuración de distribuciones para parámetros de demanda
+  - Configuración de distribuciones para gamma (γ)
+  - Configuración de distribuciones para costes por firma
 
 ### 3. Visualización del Juego (GameBoard.tsx)
 - Estado de cada firma (pensando/decidido) - N cards con colores
@@ -192,10 +225,12 @@ io-laboratory/
 - Lista de juegos con modo y número de firmas
 - **Vista detallada de cada juego**:
   - Configuración completa (modo, γ, demanda, costes)
+  - Tipo de demanda y especificaciones de parámetros (distribuciones)
   - Firmas con modelos e info disclosure
   - Equilibrios teóricos
   - Resumen de resultados
   - **Ronda por ronda expandible**:
+    - **Parámetros realizados** (valores concretos usados en cada ronda)
     - Logs de comunicación
     - Decisiones con razonamiento
     - **Prompts enviados a cada LLM** (auditoría)
@@ -203,8 +238,10 @@ io-laboratory/
   - Timestamps
 
 ### 5. Persistencia (MongoDB)
-- Configuración completa del juego (N-poly, Bertrand, γ)
+- Configuración completa del juego (N-poly, Bertrand, γ, demanda)
+- **Especificaciones de parámetros** (distribuciones configuradas)
 - Todas las réplicas con sus rondas
+- **Parámetros realizados por ronda** (valores concretos usados)
 - **Prompts enviados a cada LLM por ronda** (auditoría)
 - Mensajes de comunicación
 - Equilibrios teóricos
@@ -280,6 +317,7 @@ VITE_SOCKET_URL=http://localhost:3001
 | Modificar prompts LLM | `server/src/services/LLMService.ts` |
 | Añadir modelos LLM | `client/src/types/game.ts` (AVAILABLE_MODELS) |
 | Cambiar lógica de juego | `server/src/services/CournotService.ts` |
+| Parámetros aleatorios | `server/src/services/ParameterService.ts` |
 | Modificar UI configuración | `client/src/components/HomePage.tsx` |
 | Modificar opciones avanzadas | `client/src/components/AdvancedSettings.tsx` |
 | Modificar visualización | `client/src/components/game/GameBoard.tsx` |
@@ -291,6 +329,55 @@ VITE_SOCKET_URL=http://localhost:3001
 ```typescript
 // Modo de competencia
 type CompetitionMode = 'cournot' | 'bertrand';
+
+// Tipos de distribución para parámetros aleatorios
+type DistributionType = 'fixed' | 'uniform' | 'normal' | 'lognormal';
+
+// Especificación de parámetro (fijo o aleatorio)
+interface ParameterSpec {
+  type: DistributionType;
+  value?: number;      // Para 'fixed'
+  min?: number;        // Para 'uniform'
+  max?: number;        // Para 'uniform'
+  mean?: number;       // Para 'normal' y 'lognormal'
+  stdDev?: number;     // Para 'normal' y 'lognormal'
+}
+
+// Tipos de función de demanda
+type DemandFunctionType = 'linear' | 'isoelastic';
+
+// Configuración de demanda lineal
+interface LinearDemandConfig {
+  type: 'linear';
+  intercept: ParameterSpec;  // a
+  slope: ParameterSpec;      // b
+}
+
+// Configuración de demanda isoelástica
+interface IsoelasticDemandConfig {
+  type: 'isoelastic';
+  scale: ParameterSpec;       // A
+  elasticity: ParameterSpec;  // ε
+}
+
+type DemandConfig = LinearDemandConfig | IsoelasticDemandConfig;
+
+// Valores realizados para una ronda
+interface RealizedParameters {
+  demand: {
+    type: DemandFunctionType;
+    intercept?: number;   // Lineal
+    slope?: number;       // Lineal
+    scale?: number;       // Isoelástica
+    elasticity?: number;  // Isoelástica
+  };
+  gamma?: number;
+  firmCosts: {
+    firmId: number;
+    linearCost: number;
+    quadraticCost: number;
+  }[];
+}
 
 // Config de firma individual
 interface FirmConfig {
@@ -309,9 +396,12 @@ interface CournotConfig {
   gamma?: number;                      // default: 1 (homogéneo)
   firms?: FirmConfig[];                // Para N > 2
 
-  // Demanda
+  // Demanda legacy (para retrocompatibilidad)
   demandIntercept: number;      // a
   demandSlope: number;          // b
+
+  // Nueva configuración de demanda (alternativa)
+  demandFunction?: DemandConfig;
 
   // Costes legacy (duopolio)
   firm1LinearCost: number;      // c1
@@ -332,6 +422,11 @@ interface CournotConfig {
   // Comunicación
   communication: CommunicationSettings;
   customSystemPrompt?: string;
+
+  // Parámetros aleatorios
+  gammaSpec?: ParameterSpec;
+  firmCostSpecs?: { linearCost: ParameterSpec; quadraticCost: ParameterSpec }[];
+  parameterVariation?: 'fixed' | 'per-replication' | 'per-round';
 }
 
 // Resultado de firma individual por ronda
@@ -353,6 +448,8 @@ interface NPolyEquilibrium {
   marketPrices: number[];
   avgMarketPrice: number;
   totalProfit: number;
+  calculable: boolean;      // false para demanda isoelástica
+  message?: string;         // Mensaje si no es calculable
 }
 
 // Análisis limit-pricing (solo duopolio)
@@ -403,10 +500,12 @@ Al hacer push a main, ambos servicios se despliegan automáticamente.
 
 ## Retrocompatibilidad
 
-- CournotConfig mantiene campos legacy (firm1LinearCost, etc.)
+- CournotConfig mantiene campos legacy (firm1LinearCost, demandIntercept, etc.)
 - Si no se especifica `numFirms`, se asume duopolio (2)
 - Si no se especifica `gamma`, se asume productos homogéneos (1)
 - Si no se especifica `competitionMode`, se asume 'cournot'
+- Si no se especifica `demandFunction`, se asume demanda lineal con valores de `demandIntercept`/`demandSlope`
+- Si no se especifica `parameterVariation`, se asume 'fixed'
 - Los juegos antiguos en MongoDB siguen funcionando
 
 ## Próximas Mejoras Posibles
@@ -418,4 +517,6 @@ Al hacer push a main, ambos servicios se despliegan automáticamente.
 - [x] ~~Competencia en precios (Bertrand)~~ ✓ Implementado
 - [x] ~~N-polio (más de 2 firmas)~~ ✓ Implementado
 - [x] ~~Diferenciación de productos~~ ✓ Implementado
+- [x] ~~Parámetros aleatorios~~ ✓ Implementado (Uniform, Normal, Log-normal)
+- [x] ~~Demanda isoelástica~~ ✓ Implementado
 - [ ] Tests automatizados

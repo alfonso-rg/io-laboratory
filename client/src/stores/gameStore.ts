@@ -9,6 +9,7 @@ import {
   getNumFirms,
   getGamma,
   getFirmConfig,
+  getDemandFunctionType,
 } from '../types/game';
 
 // Dynamic firm thinking state (supports up to 10 firms)
@@ -250,11 +251,32 @@ function solveLinearSystem(A: number[][], b: number[]): number[] | null {
 
 /**
  * Calculate N-poly Cournot equilibrium
+ * Returns a non-calculable result for isoelastic demand
  */
 export function calculateNPolyCournotEquilibrium(config: CournotConfig): NPolyEquilibrium | null {
+  const demandType = getDemandFunctionType(config);
+  const numFirms = getNumFirms(config);
+
+  // For isoelastic demand, Nash equilibrium is not analytically calculable
+  if (demandType === 'isoelastic') {
+    return {
+      competitionMode: 'cournot',
+      firms: Array.from({ length: numFirms }, (_, i) => ({
+        firmId: i + 1,
+        quantity: NaN,
+        profit: NaN,
+      })),
+      totalQuantity: NaN,
+      marketPrices: [],
+      avgMarketPrice: NaN,
+      totalProfit: NaN,
+      calculable: false,
+      message: 'Nash equilibrium not analytically calculable for isoelastic demand',
+    };
+  }
+
   const { demandIntercept: a, demandSlope: b } = config;
   const gamma = getGamma(config);
-  const numFirms = getNumFirms(config);
 
   const A: number[][] = [];
   const B: number[] = [];
@@ -312,6 +334,7 @@ export function calculateNPolyCournotEquilibrium(config: CournotConfig): NPolyEq
     marketPrices,
     avgMarketPrice: marketPrices.reduce((s, p) => s + p, 0) / numFirms,
     totalProfit,
+    calculable: true,
   };
 }
 

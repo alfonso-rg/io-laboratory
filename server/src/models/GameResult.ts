@@ -3,6 +3,53 @@ import { GameResultData } from '../types';
 
 export interface GameResultDocument extends GameResultData, Document {}
 
+// Parameter specification schema (for random parameters)
+const ParameterSpecSchema = new Schema({
+  type: { type: String, enum: ['fixed', 'uniform', 'normal', 'lognormal'], required: true },
+  value: { type: Number },
+  min: { type: Number },
+  max: { type: Number },
+  mean: { type: Number },
+  stdDev: { type: Number },
+}, { _id: false });
+
+// Realized parameters schema (actual values used in a round)
+const RealizedParametersSchema = new Schema({
+  demand: {
+    type: { type: String, enum: ['linear', 'isoelastic'] },
+    intercept: { type: Number },
+    slope: { type: Number },
+    scale: { type: Number },
+    elasticity: { type: Number },
+  },
+  gamma: { type: Number },
+  firmCosts: [{
+    firmId: { type: Number },
+    linearCost: { type: Number },
+    quadraticCost: { type: Number },
+  }],
+}, { _id: false });
+
+// Linear demand config schema
+const LinearDemandConfigSchema = new Schema({
+  type: { type: String, enum: ['linear'], required: true },
+  intercept: { type: ParameterSpecSchema, required: true },
+  slope: { type: ParameterSpecSchema, required: true },
+}, { _id: false });
+
+// Isoelastic demand config schema
+const IsoelasticDemandConfigSchema = new Schema({
+  type: { type: String, enum: ['isoelastic'], required: true },
+  scale: { type: ParameterSpecSchema, required: true },
+  elasticity: { type: ParameterSpecSchema, required: true },
+}, { _id: false });
+
+// Firm cost spec schema
+const FirmCostSpecSchema = new Schema({
+  linearCost: { type: ParameterSpecSchema, required: true },
+  quadraticCost: { type: ParameterSpecSchema, required: true },
+}, { _id: false });
+
 // Communication message schema (updated for N firms)
 const CommunicationMessageSchema = new Schema({
   firm: { type: Number, required: true, min: 1, max: 10 },
@@ -38,6 +85,8 @@ const RoundResultSchema = new Schema({
   marketPrices: { type: [Number], default: [] },
   communication: { type: [CommunicationMessageSchema], default: [] },
   timestamp: { type: Date, required: true },
+  // Realized parameters (for random parameter experiments)
+  realizedParameters: { type: RealizedParametersSchema },
 });
 
 // Replication summary schema
@@ -127,6 +176,12 @@ const CournotConfigSchema = new Schema({
   maxQuantity: { type: Number },
   minPrice: { type: Number },
   maxPrice: { type: Number },
+
+  // Random parameters and alternative demand functions
+  demandFunction: { type: Schema.Types.Mixed },  // LinearDemandConfig | IsoelasticDemandConfig
+  gammaSpec: { type: ParameterSpecSchema },
+  firmCostSpecs: { type: [FirmCostSpecSchema], default: [] },
+  parameterVariation: { type: String, enum: ['fixed', 'per-replication', 'per-round'] },
 });
 
 const NashEquilibriumSchema = new Schema({

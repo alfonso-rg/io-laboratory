@@ -2,11 +2,17 @@ import { useState } from 'react';
 import {
   CournotConfig,
   InformationDisclosure,
+  ParameterSpec,
+  DistributionType,
+  ParameterVariation,
+  FirmCostSpec,
   FIRM_COLORS,
   getNumFirms,
   getGamma,
   getCompetitionMode,
   getFirmConfig,
+  getDemandFunctionType,
+  fixedParam,
   DEFAULT_INFO_DISCLOSURE,
 } from '../types/game';
 
@@ -134,11 +140,143 @@ function generateDefaultPrompt(config: CournotConfig, firmNumber: number): strin
   return prompt;
 }
 
+// Helper component for parameter specification input
+function ParameterInput({
+  label,
+  spec,
+  onChange,
+  disabled,
+  min,
+  step = 0.1,
+}: {
+  label: string;
+  spec: ParameterSpec;
+  onChange: (newSpec: ParameterSpec) => void;
+  disabled: boolean;
+  min?: number;
+  step?: number;
+}) {
+  const distributionTypes: { value: DistributionType; label: string }[] = [
+    { value: 'fixed', label: 'Fixed' },
+    { value: 'uniform', label: 'Uniform' },
+    { value: 'normal', label: 'Normal' },
+    { value: 'lognormal', label: 'Log-normal' },
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 mb-2">
+      <label className="w-32 text-sm font-medium text-gray-700">{label}</label>
+      <select
+        value={spec.type}
+        onChange={(e) => {
+          const newType = e.target.value as DistributionType;
+          if (newType === 'fixed') {
+            onChange({ type: 'fixed', value: spec.value ?? spec.mean ?? 0 });
+          } else if (newType === 'uniform') {
+            onChange({ type: 'uniform', min: spec.value ?? 0, max: (spec.value ?? 0) * 1.5 || 100 });
+          } else if (newType === 'normal') {
+            onChange({ type: 'normal', mean: spec.value ?? spec.mean ?? 0, stdDev: spec.stdDev ?? 10 });
+          } else {
+            onChange({ type: 'lognormal', mean: spec.value ?? spec.mean ?? 10, stdDev: spec.stdDev ?? 2 });
+          }
+        }}
+        className="w-28 px-2 py-1 border rounded text-sm"
+        disabled={disabled}
+      >
+        {distributionTypes.map((dt) => (
+          <option key={dt.value} value={dt.value}>{dt.label}</option>
+        ))}
+      </select>
+
+      {spec.type === 'fixed' && (
+        <input
+          type="number"
+          value={spec.value ?? 0}
+          onChange={(e) => onChange({ ...spec, value: parseFloat(e.target.value) || 0 })}
+          className="w-20 px-2 py-1 border rounded text-sm"
+          disabled={disabled}
+          min={min}
+          step={step}
+        />
+      )}
+
+      {spec.type === 'uniform' && (
+        <>
+          <input
+            type="number"
+            placeholder="Min"
+            value={spec.min ?? 0}
+            onChange={(e) => onChange({ ...spec, min: parseFloat(e.target.value) || 0 })}
+            className="w-20 px-2 py-1 border rounded text-sm"
+            disabled={disabled}
+            min={min}
+            step={step}
+          />
+          <span className="text-gray-500">-</span>
+          <input
+            type="number"
+            placeholder="Max"
+            value={spec.max ?? 100}
+            onChange={(e) => onChange({ ...spec, max: parseFloat(e.target.value) || 0 })}
+            className="w-20 px-2 py-1 border rounded text-sm"
+            disabled={disabled}
+            step={step}
+          />
+        </>
+      )}
+
+      {(spec.type === 'normal' || spec.type === 'lognormal') && (
+        <>
+          <input
+            type="number"
+            placeholder="Mean"
+            value={spec.mean ?? 0}
+            onChange={(e) => onChange({ ...spec, mean: parseFloat(e.target.value) || 0 })}
+            className="w-20 px-2 py-1 border rounded text-sm"
+            disabled={disabled}
+            step={step}
+          />
+          <span className="text-gray-500">±</span>
+          <input
+            type="number"
+            placeholder="StdDev"
+            value={spec.stdDev ?? 1}
+            onChange={(e) => onChange({ ...spec, stdDev: parseFloat(e.target.value) || 0 })}
+            className="w-20 px-2 py-1 border rounded text-sm"
+            disabled={disabled}
+            min={0}
+            step={step}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+// Format a parameter spec for display
+function formatSpec(spec: ParameterSpec): string {
+  switch (spec.type) {
+    case 'fixed':
+      return `${spec.value ?? 0}`;
+    case 'uniform':
+      return `U(${spec.min ?? 0}, ${spec.max ?? 100})`;
+    case 'normal':
+      return `N(${spec.mean ?? 0}, ${spec.stdDev ?? 1})`;
+    case 'lognormal':
+      return `LN(${spec.mean ?? 1}, ${spec.stdDev ?? 0.5})`;
+    default:
+      return '?';
+  }
+}
+
 export function AdvancedSettings({ config, setConfig, disabled }: AdvancedSettingsProps) {
   const [showPromptEditor, setShowPromptEditor] = useState(false);
   const [showDefaultPrompt, setShowDefaultPrompt] = useState(false);
   const [previewFirm, setPreviewFirm] = useState(1);
+  const [showRandomization, setShowRandomization] = useState(false);
   const numFirms = getNumFirms(config);
+  const demandType = getDemandFunctionType(config);
+  const parameterVariation = config.parameterVariation || 'fixed';
 
   // Update firm info - works for both legacy (firm 1, 2) and new (firms array) format
   const updateFirmInfo = (firmId: number, updates: Partial<InformationDisclosure>) => {
@@ -294,6 +432,225 @@ export function AdvancedSettings({ config, setConfig, disabled }: AdvancedSettin
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Parameter Randomization */}
+      <div className="bg-white p-6 rounded-lg shadow">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h2 className="text-xl font-semibold">Parameter Randomization</h2>
+            <p className="text-sm text-gray-600">
+              Configure random variation in demand and cost parameters
+            </p>
+          </div>
+          <button
+            onClick={() => setShowRandomization(!showRandomization)}
+            className="text-blue-600 hover:text-blue-800 text-sm"
+          >
+            {showRandomization ? 'Hide' : 'Show'} Settings
+          </button>
+        </div>
+
+        {showRandomization && (
+          <div className="space-y-6">
+            {/* Parameter Variation Mode */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Parameter Variation</label>
+              <select
+                value={parameterVariation}
+                onChange={(e) => setConfig({ parameterVariation: e.target.value as ParameterVariation })}
+                className="w-full md:w-64 px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                disabled={disabled}
+              >
+                <option value="fixed">Fixed (same for all rounds)</option>
+                <option value="per-replication">Re-draw each replication</option>
+                <option value="per-round">Re-draw each round</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {parameterVariation === 'fixed' && 'Parameters are drawn once and stay constant'}
+                {parameterVariation === 'per-replication' && 'New random draw at the start of each replication'}
+                {parameterVariation === 'per-round' && 'New random draw every round (most variation)'}
+              </p>
+            </div>
+
+            {/* Demand Parameters */}
+            <div className="border rounded-lg p-4 bg-gray-50">
+              <h3 className="font-semibold mb-3">Demand Parameters</h3>
+              {demandType === 'linear' ? (
+                <>
+                  <ParameterInput
+                    label="Intercept (a)"
+                    spec={config.demandFunction?.type === 'linear'
+                      ? config.demandFunction.intercept
+                      : fixedParam(config.demandIntercept)}
+                    onChange={(newSpec) => {
+                      setConfig({
+                        demandFunction: {
+                          type: 'linear',
+                          intercept: newSpec,
+                          slope: config.demandFunction?.type === 'linear'
+                            ? config.demandFunction.slope
+                            : fixedParam(config.demandSlope),
+                        },
+                        demandIntercept: newSpec.type === 'fixed' ? (newSpec.value ?? 100) : config.demandIntercept,
+                      });
+                    }}
+                    disabled={disabled}
+                  />
+                  <ParameterInput
+                    label="Slope (b)"
+                    spec={config.demandFunction?.type === 'linear'
+                      ? config.demandFunction.slope
+                      : fixedParam(config.demandSlope)}
+                    onChange={(newSpec) => {
+                      setConfig({
+                        demandFunction: {
+                          type: 'linear',
+                          intercept: config.demandFunction?.type === 'linear'
+                            ? config.demandFunction.intercept
+                            : fixedParam(config.demandIntercept),
+                          slope: newSpec,
+                        },
+                        demandSlope: newSpec.type === 'fixed' ? (newSpec.value ?? 1) : config.demandSlope,
+                      });
+                    }}
+                    disabled={disabled}
+                    min={0.01}
+                  />
+                </>
+              ) : (
+                <>
+                  <ParameterInput
+                    label="Scale (A)"
+                    spec={config.demandFunction?.type === 'isoelastic'
+                      ? config.demandFunction.scale
+                      : fixedParam(100)}
+                    onChange={(newSpec) => {
+                      setConfig({
+                        demandFunction: {
+                          type: 'isoelastic',
+                          scale: newSpec,
+                          elasticity: config.demandFunction?.type === 'isoelastic'
+                            ? config.demandFunction.elasticity
+                            : fixedParam(2),
+                        },
+                      });
+                    }}
+                    disabled={disabled}
+                    min={0.01}
+                  />
+                  <ParameterInput
+                    label="Elasticity (ε)"
+                    spec={config.demandFunction?.type === 'isoelastic'
+                      ? config.demandFunction.elasticity
+                      : fixedParam(2)}
+                    onChange={(newSpec) => {
+                      setConfig({
+                        demandFunction: {
+                          type: 'isoelastic',
+                          scale: config.demandFunction?.type === 'isoelastic'
+                            ? config.demandFunction.scale
+                            : fixedParam(100),
+                          elasticity: newSpec,
+                        },
+                      });
+                    }}
+                    disabled={disabled}
+                    min={0.1}
+                  />
+                </>
+              )}
+            </div>
+
+            {/* Gamma (Product Differentiation) */}
+            <div className="border rounded-lg p-4 bg-gray-50">
+              <h3 className="font-semibold mb-3">Product Differentiation</h3>
+              <ParameterInput
+                label="Gamma (γ)"
+                spec={config.gammaSpec ?? fixedParam(config.gamma ?? 1)}
+                onChange={(newSpec) => {
+                  setConfig({
+                    gammaSpec: newSpec,
+                    gamma: newSpec.type === 'fixed' ? (newSpec.value ?? 1) : config.gamma,
+                  });
+                }}
+                disabled={disabled}
+                min={0}
+                step={0.05}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                γ = 0 (independent products) to γ = 1 (homogeneous products)
+              </p>
+            </div>
+
+            {/* Firm Costs */}
+            <div className="border rounded-lg p-4 bg-gray-50">
+              <h3 className="font-semibold mb-3">Firm Costs</h3>
+              <div className="space-y-4">
+                {Array.from({ length: numFirms }, (_, i) => {
+                  const firmId = i + 1;
+                  const firmConfig = getFirmConfig(config, firmId);
+                  const firmCostSpec = config.firmCostSpecs?.[i] ?? {
+                    linearCost: fixedParam(firmConfig.linearCost),
+                    quadraticCost: fixedParam(firmConfig.quadraticCost),
+                  };
+                  const firmColor = FIRM_COLORS[i];
+
+                  return (
+                    <div key={firmId} className="border-l-4 pl-3" style={{ borderColor: firmColor }}>
+                      <h4 className="font-medium text-sm mb-2" style={{ color: firmColor }}>
+                        Firm {firmId}
+                      </h4>
+                      <ParameterInput
+                        label="Linear Cost (c)"
+                        spec={firmCostSpec.linearCost}
+                        onChange={(newSpec) => {
+                          const newFirmCostSpecs = [...(config.firmCostSpecs ?? [])];
+                          // Ensure array is long enough
+                          while (newFirmCostSpecs.length < numFirms) {
+                            const fc = getFirmConfig(config, newFirmCostSpecs.length + 1);
+                            newFirmCostSpecs.push({
+                              linearCost: fixedParam(fc.linearCost),
+                              quadraticCost: fixedParam(fc.quadraticCost),
+                            });
+                          }
+                          newFirmCostSpecs[i] = {
+                            ...newFirmCostSpecs[i],
+                            linearCost: newSpec,
+                          };
+                          setConfig({ firmCostSpecs: newFirmCostSpecs });
+                        }}
+                        disabled={disabled}
+                        min={0}
+                      />
+                      <ParameterInput
+                        label="Quadratic (d)"
+                        spec={firmCostSpec.quadraticCost}
+                        onChange={(newSpec) => {
+                          const newFirmCostSpecs = [...(config.firmCostSpecs ?? [])];
+                          while (newFirmCostSpecs.length < numFirms) {
+                            const fc = getFirmConfig(config, newFirmCostSpecs.length + 1);
+                            newFirmCostSpecs.push({
+                              linearCost: fixedParam(fc.linearCost),
+                              quadraticCost: fixedParam(fc.quadraticCost),
+                            });
+                          }
+                          newFirmCostSpecs[i] = {
+                            ...newFirmCostSpecs[i],
+                            quadraticCost: newSpec,
+                          };
+                          setConfig({ firmCostSpecs: newFirmCostSpecs });
+                        }}
+                        disabled={disabled}
+                        min={0}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Information Disclosure */}

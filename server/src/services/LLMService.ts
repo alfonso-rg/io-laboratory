@@ -4,6 +4,7 @@ import {
   RoundResult,
   LLMDecision,
   InformationDisclosure,
+  RealizedParameters,
   getNumFirms,
   getGamma,
   getCompetitionMode,
@@ -57,19 +58,36 @@ export class LLMService {
    * Generate the system prompt explaining the game
    * Supports N firms and both Cournot (quantity) and Bertrand (price) competition
    * Respects information disclosure settings
+   * Uses realized parameters if provided (for random parameter experiments)
    */
-  private generateSystemPrompt(config: CournotConfig, firmNumber: number): string {
+  private generateSystemPrompt(
+    config: CournotConfig,
+    firmNumber: number,
+    realizedParams?: RealizedParameters
+  ): string {
     const numFirms = getNumFirms(config);
-    const gamma = getGamma(config);
     const mode = getCompetitionMode(config);
     const firmConfig = getFirmConfig(config, firmNumber);
     const info = firmConfig.info;
-    const ownLinearCost = firmConfig.linearCost;
-    const ownQuadraticCost = firmConfig.quadraticCost;
+
+    // Use realized parameters if available, otherwise fall back to config
+    const gamma = realizedParams?.gamma ?? getGamma(config);
+    const realizedCost = realizedParams?.firmCosts?.find(c => c.firmId === firmNumber);
+    const ownLinearCost = realizedCost?.linearCost ?? firmConfig.linearCost;
+    const ownQuadraticCost = realizedCost?.quadraticCost ?? firmConfig.quadraticCost;
 
     // For backward compatibility with custom prompts
-    const rivalLinearCost = numFirms === 2 ? getFirmConfig(config, firmNumber === 1 ? 2 : 1).linearCost : 0;
-    const rivalQuadraticCost = numFirms === 2 ? getFirmConfig(config, firmNumber === 1 ? 2 : 1).quadraticCost : 0;
+    const rivalCostData = realizedParams?.firmCosts?.find(c => c.firmId === (firmNumber === 1 ? 2 : 1));
+    const rivalConfig = numFirms === 2 ? getFirmConfig(config, firmNumber === 1 ? 2 : 1) : null;
+    const rivalLinearCost = rivalCostData?.linearCost ?? rivalConfig?.linearCost ?? 0;
+    const rivalQuadraticCost = rivalCostData?.quadraticCost ?? rivalConfig?.quadraticCost ?? 0;
+
+    // Get demand parameters
+    const demandType = realizedParams?.demand?.type || config.demandFunction?.type || 'linear';
+    const demandIntercept = realizedParams?.demand?.intercept ?? config.demandIntercept;
+    const demandSlope = realizedParams?.demand?.slope ?? config.demandSlope;
+    const demandScale = realizedParams?.demand?.scale ?? 100;
+    const demandElasticity = realizedParams?.demand?.elasticity ?? 2;
 
     // Use custom prompt if provided
     if (config.customSystemPrompt) {
@@ -99,24 +117,35 @@ export class LLMService {
 
     // Demand function (if revealed)
     if (info.revealDemandFunction) {
-      if (isBertrand) {
+      if (demandType === 'isoelastic') {
+        // Isoelastic demand: P = A * Q^(-1/ε)
+        prompt += `- Demand has constant price elasticity: ε = ${demandElasticity.toFixed(2)}\n`;
+        prompt += `- Market price function: P = ${demandScale.toFixed(2)} × Q^(-1/${demandElasticity.toFixed(2)})\n`;
+        prompt += `- This means demand becomes less elastic as quantity increases\n`;
         if (gamma < 1) {
-          prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your demand depends on your price and competitors' prices.\n`;
-          prompt += `- Base demand: approximately q = (${config.demandIntercept} - your_price + ${gamma.toFixed(2)} × avg_competitor_price_diff) / ${config.demandSlope}\n`;
-        } else {
-          prompt += `- Products are homogeneous. Market demand: Q = (${config.demandIntercept} - P) / ${config.demandSlope}\n`;
-          prompt += '- The firm with the lowest price captures most/all of the market.\n';
+          prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)})\n`;
         }
       } else {
-        // Cournot
-        if (gamma < 1) {
-          prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your price depends on your quantity and competitors' quantities.\n`;
-          prompt += `- Your price: p = ${config.demandIntercept} - ${config.demandSlope} × (your_q + ${gamma.toFixed(2)} × sum_of_others_q)\n`;
-        } else {
-          if (numFirms === 2) {
-            prompt += `- Market price is determined by total quantity: P = ${config.demandIntercept} - ${config.demandSlope} × (q1 + q2)\n`;
+        // Linear demand (default)
+        if (isBertrand) {
+          if (gamma < 1) {
+            prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your demand depends on your price and competitors' prices.\n`;
+            prompt += `- Base demand: approximately q = (${demandIntercept} - your_price + ${gamma.toFixed(2)} × avg_competitor_price_diff) / ${demandSlope}\n`;
           } else {
-            prompt += `- Market price is determined by total quantity: P = ${config.demandIntercept} - ${config.demandSlope} × (q1 + q2 + ... + q${numFirms})\n`;
+            prompt += `- Products are homogeneous. Market demand: Q = (${demandIntercept} - P) / ${demandSlope}\n`;
+            prompt += '- The firm with the lowest price captures most/all of the market.\n';
+          }
+        } else {
+          // Cournot
+          if (gamma < 1) {
+            prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your price depends on your quantity and competitors' quantities.\n`;
+            prompt += `- Your price: p = ${demandIntercept} - ${demandSlope} × (your_q + ${gamma.toFixed(2)} × sum_of_others_q)\n`;
+          } else {
+            if (numFirms === 2) {
+              prompt += `- Market price is determined by total quantity: P = ${demandIntercept} - ${demandSlope} × (q1 + q2)\n`;
+            } else {
+              prompt += `- Market price is determined by total quantity: P = ${demandIntercept} - ${demandSlope} × (q1 + q2 + ... + q${numFirms})\n`;
+            }
           }
         }
       }
@@ -201,8 +230,8 @@ export class LLMService {
   /**
    * Get the current system prompt for a firm (for display/editing)
    */
-  getSystemPrompt(config: CournotConfig, firmNumber: number): string {
-    return this.generateSystemPrompt(config, firmNumber);
+  getSystemPrompt(config: CournotConfig, firmNumber: number, realizedParams?: RealizedParameters): string {
+    return this.generateSystemPrompt(config, firmNumber, realizedParams);
   }
 
   /**
@@ -366,17 +395,19 @@ export class LLMService {
   /**
    * Get LLM decision for a round
    * Supports GPT-5.2 models with reasoning effort levels
+   * Uses realized parameters if provided (for random parameter experiments)
    */
   async getDecision(
     config: CournotConfig,
     firmNumber: number,
     currentRound: number,
-    history: RoundResult[]
+    history: RoundResult[],
+    realizedParams?: RealizedParameters
   ): Promise<LLMDecision> {
     const firmConfig = getFirmConfig(config, firmNumber);
     const modelString = firmConfig.model;
     const { model: baseModel, reasoning, useResponsesAPI } = parseModelString(modelString);
-    const systemPrompt = this.generateSystemPrompt(config, firmNumber);
+    const systemPrompt = this.generateSystemPrompt(config, firmNumber, realizedParams);
     const userPrompt = this.generateRoundPrompt(config, firmNumber, currentRound, history);
     const mode = getCompetitionMode(config);
 
@@ -457,11 +488,12 @@ export class LLMService {
   async getBothDecisions(
     config: CournotConfig,
     currentRound: number,
-    history: RoundResult[]
+    history: RoundResult[],
+    realizedParams?: RealizedParameters
   ): Promise<{ firm1: LLMDecision; firm2: LLMDecision }> {
     const [firm1Decision, firm2Decision] = await Promise.all([
-      this.getDecision(config, 1, currentRound, history),
-      this.getDecision(config, 2, currentRound, history),
+      this.getDecision(config, 1, currentRound, history, realizedParams),
+      this.getDecision(config, 2, currentRound, history, realizedParams),
     ]);
 
     return {
@@ -472,17 +504,19 @@ export class LLMService {
 
   /**
    * Get decisions from all N firms concurrently
+   * Uses realized parameters if provided (for random parameter experiments)
    */
   async getAllDecisions(
     config: CournotConfig,
     currentRound: number,
-    history: RoundResult[]
+    history: RoundResult[],
+    realizedParams?: RealizedParameters
   ): Promise<Map<number, LLMDecision>> {
     const numFirms = getNumFirms(config);
     const mode = getCompetitionMode(config);
 
     const decisionPromises = Array.from({ length: numFirms }, (_, i) =>
-      this.getDecision(config, i + 1, currentRound, history)
+      this.getDecision(config, i + 1, currentRound, history, realizedParams)
         .then(decision => ({ firmId: i + 1, decision }))
         .catch(error => {
           logger.error(`Error getting decision from Firm ${i + 1}:`, error);
