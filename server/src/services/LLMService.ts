@@ -404,16 +404,26 @@ export class LLMService {
         const response = await (this.openai as any).responses.create(requestParams);
         content = response.output_text || response.output?.[0]?.content?.[0]?.text;
       } else {
-        // Use Chat Completions API for GPT-4 models
-        const completion = await this.openai.chat.completions.create({
+        // Use Chat Completions API for GPT-4 and GPT-5-nano/mini models
+        // GPT-5-nano and GPT-5-mini require max_completion_tokens instead of max_tokens
+        const isGPT5CompletionsModel = baseModel.startsWith('gpt-5-');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const completionParams: any = {
           model: baseModel,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
           temperature: 0.7,
-          max_tokens: 500,
-        });
+        };
+
+        if (isGPT5CompletionsModel) {
+          completionParams.max_completion_tokens = 500;
+        } else {
+          completionParams.max_tokens = 500;
+        }
+
+        const completion = await this.openai.chat.completions.create(completionParams);
         content = completion.choices[0]?.message?.content;
       }
 
@@ -568,16 +578,25 @@ export class LLMService {
         const response = await (this.openai as any).responses.create(requestParams);
         content = response.output_text || response.output?.[0]?.content?.[0]?.text;
       } else {
-        // Use Chat Completions API for GPT-4 models
-        const completion = await this.openai.chat.completions.create({
+        // Use Chat Completions API for GPT-4 and GPT-5-nano/mini models
+        const isGPT5CompletionsModel = baseModel.startsWith('gpt-5-');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const completionParams: any = {
           model: baseModel,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
           temperature: 0.7,
-          max_tokens: 200,
-        });
+        };
+
+        if (isGPT5CompletionsModel) {
+          completionParams.max_completion_tokens = 200;
+        } else {
+          completionParams.max_tokens = 200;
+        }
+
+        const completion = await this.openai.chat.completions.create(completionParams);
         content = completion.choices[0]?.message?.content;
       }
 
