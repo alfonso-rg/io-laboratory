@@ -365,13 +365,27 @@ Al hacer push a main, ambos servicios se despliegan automáticamente.
 
 ## Notas Técnicas
 
+### Integración OpenAI
+- **Responses API**: Usada por GPT-5.2, GPT-5.2 Pro, GPT-5.1, GPT-5 (base)
+  - Soporta `reasoning_effort` para controlar nivel de razonamiento
+  - Usa `max_output_tokens` para limitar respuesta
+- **Chat Completions API**: Usada por GPT-5-nano, GPT-5-mini, GPT-4o, GPT-4o-mini
+  - GPT-5-nano/mini requieren `max_completion_tokens` (no `max_tokens`)
+  - GPT-4o/4o-mini usan `max_tokens` tradicional
+
+### Arquitectura
 - MongoDB es opcional (el servidor funciona sin él, solo no persiste)
+- El servidor verifica conexión MongoDB antes de queries (`mongoose.connection.readyState`)
 - Los LLMs deciden simultáneamente (Promise.all para N firmas)
 - La comunicación ocurre secuencialmente (Firma 1, 2, ..., N, 1, 2...)
-- El historial de rondas se incluye en cada prompt
-- El primer línea de respuesta LLM debe ser solo el número (cantidad o precio)
+- El historial de rondas se incluye en cada prompt (memoria del juego)
+- La primera línea de respuesta LLM debe ser solo el número (cantidad o precio)
 - Las réplicas se ejecutan secuencialmente, no en paralelo
 - Los prompts se almacenan para auditoría en cada FirmRoundResult
+
+### Frontend
+- AdminPanel detecta automáticamente URL de producción (Render) vs desarrollo
+- Soporte completo para N firmas (2-10) en GameBoard, GameResults y tablas
 - El equilibrio Bertrand con γ=1 es precio = coste marginal mínimo
 - El cálculo N-poly usa eliminación gaussiana con pivoteo parcial
 
