@@ -366,13 +366,11 @@ Al hacer push a main, ambos servicios se despliegan automáticamente.
 ## Notas Técnicas
 
 ### Integración OpenAI
-- **Responses API**: Usada por GPT-5.2, GPT-5.2 Pro, GPT-5.1, GPT-5 (base)
-  - Soporta `reasoning_effort` para controlar nivel de razonamiento
-  - Usa `max_output_tokens` para limitar respuesta
-- **Chat Completions API**: Usada por GPT-5-nano, GPT-5-mini, GPT-4o, GPT-4o-mini
-  - GPT-5-nano/mini requieren `max_completion_tokens` (no `max_tokens`)
-  - GPT-5-nano/mini NO soportan `temperature` personalizado (solo valor por defecto 1)
-  - GPT-4o/4o-mini usan `max_tokens` y soportan `temperature: 0.7`
+- **Responses API**: Usada por TODOS los modelos GPT-5 (incluyendo nano, mini, 5.2, 5.2-pro)
+  - Soporta `reasoning_effort` para GPT-5.2 (none, low, medium, high, xhigh)
+  - GPT-5-nano/mini usan Responses API sin parámetro reasoning
+- **Chat Completions API**: Usada solo por GPT-4o y GPT-4o-mini
+  - Usa `max_tokens` y soporta `temperature: 0.7`
 
 ### Arquitectura
 - MongoDB es opcional (el servidor funciona sin él, solo no persiste)

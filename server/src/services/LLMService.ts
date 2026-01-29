@@ -14,17 +14,16 @@ import { logger } from '../config/logger';
 // Type for GPT-5.2 reasoning effort levels
 type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
-// Check if model is a GPT-5.2 family model that uses Responses API
-// Note: gpt-5-mini and gpt-5-nano support both APIs, but Chat Completions is more stable
+// Check if model is a GPT-5 family model that uses Responses API
+// All GPT-5 models (including nano and mini) use Responses API for best compatibility
 function isGPT5ResponsesModel(model: string): boolean {
-  // Only GPT-5.2 variants use Responses API (gpt-5.2, gpt-5.2-pro, gpt-5.2-codex)
-  // gpt-5-mini and gpt-5-nano use Chat Completions API for better compatibility
-  return model.startsWith('gpt-5.2') || model.startsWith('gpt-5.1') || model === 'gpt-5';
+  // All GPT-5 variants use Responses API
+  return model.startsWith('gpt-5');
 }
 
 // Parse model string to extract base model and reasoning level
 // Format: "gpt-5.2:medium" -> { model: "gpt-5.2", reasoning: "medium" }
-// gpt-5-mini and gpt-5-nano use Chat Completions API (more stable)
+// All GPT-5 models use Responses API
 function parseModelString(modelString: string): { model: string; reasoning?: ReasoningEffort; useResponsesAPI: boolean } {
   const parts = modelString.split(':');
 
@@ -36,13 +35,12 @@ function parseModelString(modelString: string): { model: string; reasoning?: Rea
     }
   }
 
-  // GPT-5.2 family models use Responses API
-  // gpt-5-mini and gpt-5-nano use Chat Completions API (more stable and compatible)
+  // All GPT-5 family models use Responses API (including nano, mini, 5.2, etc.)
   if (isGPT5ResponsesModel(modelString)) {
     return { model: modelString, useResponsesAPI: true };
   }
 
-  // All other models (GPT-4o, gpt-5-mini, gpt-5-nano, etc.) use Chat Completions API
+  // GPT-4o models use Chat Completions API
   return { model: modelString, useResponsesAPI: false };
 }
 
