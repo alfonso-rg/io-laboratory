@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FIRM_COLORS, AVAILABLE_MODELS, DistributionType, ParameterSpec, DemandConfig, RealizedParameters } from '../../types/game';
+import { FIRM_COLORS, AVAILABLE_MODELS, ParameterSpec, DemandConfig, RealizedParameters } from '../../types/game';
 
 // API base URL - use the same URL as socket connection
 // In production (Vercel), fall back to Render backend if VITE_SOCKET_URL is not set

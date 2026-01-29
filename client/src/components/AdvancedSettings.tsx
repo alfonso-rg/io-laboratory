@@ -5,7 +5,6 @@ import {
   ParameterSpec,
   DistributionType,
   ParameterVariation,
-  FirmCostSpec,
   FIRM_COLORS,
   getNumFirms,
   getGamma,
@@ -251,22 +250,6 @@ function ParameterInput({
       )}
     </div>
   );
-}
-
-// Format a parameter spec for display
-function formatSpec(spec: ParameterSpec): string {
-  switch (spec.type) {
-    case 'fixed':
-      return `${spec.value ?? 0}`;
-    case 'uniform':
-      return `U(${spec.min ?? 0}, ${spec.max ?? 100})`;
-    case 'normal':
-      return `N(${spec.mean ?? 0}, ${spec.stdDev ?? 1})`;
-    case 'lognormal':
-      return `LN(${spec.mean ?? 1}, ${spec.stdDev ?? 0.5})`;
-    default:
-      return '?';
-  }
 }
 
 export function AdvancedSettings({ config, setConfig, disabled }: AdvancedSettingsProps) {
