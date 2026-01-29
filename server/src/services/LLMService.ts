@@ -406,6 +406,7 @@ export class LLMService {
       } else {
         // Use Chat Completions API for GPT-4 and GPT-5-nano/mini models
         // GPT-5-nano and GPT-5-mini require max_completion_tokens instead of max_tokens
+        // and do NOT support custom temperature (only default value 1 is allowed)
         const isGPT5CompletionsModel = baseModel.startsWith('gpt-5-');
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const completionParams: any = {
@@ -414,13 +415,15 @@ export class LLMService {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          temperature: 0.7,
         };
 
         if (isGPT5CompletionsModel) {
+          // GPT-5-nano/mini: use max_completion_tokens, no temperature (only default 1 allowed)
           completionParams.max_completion_tokens = 500;
         } else {
+          // GPT-4o models: use max_tokens and allow custom temperature
           completionParams.max_tokens = 500;
+          completionParams.temperature = 0.7;
         }
 
         const completion = await this.openai.chat.completions.create(completionParams);
@@ -579,6 +582,7 @@ export class LLMService {
         content = response.output_text || response.output?.[0]?.content?.[0]?.text;
       } else {
         // Use Chat Completions API for GPT-4 and GPT-5-nano/mini models
+        // GPT-5-nano/mini do NOT support custom temperature (only default 1)
         const isGPT5CompletionsModel = baseModel.startsWith('gpt-5-');
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const completionParams: any = {
@@ -587,13 +591,15 @@ export class LLMService {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          temperature: 0.7,
         };
 
         if (isGPT5CompletionsModel) {
+          // GPT-5-nano/mini: use max_completion_tokens, no temperature
           completionParams.max_completion_tokens = 200;
         } else {
+          // GPT-4o models: use max_tokens and allow custom temperature
           completionParams.max_tokens = 200;
+          completionParams.temperature = 0.7;
         }
 
         const completion = await this.openai.chat.completions.create(completionParams);

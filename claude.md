@@ -371,7 +371,8 @@ Al hacer push a main, ambos servicios se despliegan automáticamente.
   - Usa `max_output_tokens` para limitar respuesta
 - **Chat Completions API**: Usada por GPT-5-nano, GPT-5-mini, GPT-4o, GPT-4o-mini
   - GPT-5-nano/mini requieren `max_completion_tokens` (no `max_tokens`)
-  - GPT-4o/4o-mini usan `max_tokens` tradicional
+  - GPT-5-nano/mini NO soportan `temperature` personalizado (solo valor por defecto 1)
+  - GPT-4o/4o-mini usan `max_tokens` y soportan `temperature: 0.7`
 
 ### Arquitectura
 - MongoDB es opcional (el servidor funciona sin él, solo no persiste)
