@@ -22,7 +22,7 @@ function isMongoConnected(): boolean {
   return mongoose.connection.readyState === 1;
 }
 
-// Get all game results with pagination
+// Get all game results with pagination and filters
 router.get('/games', async (req: Request, res: Response) => {
   try {
     // Check MongoDB connection
@@ -42,13 +42,53 @@ router.get('/games', async (req: Request, res: Response) => {
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
+    // Build filter query
+    const filter: Record<string, unknown> = {};
+
+    // Filter by number of firms
+    const numFirms = req.query.numFirms as string;
+    if (numFirms && numFirms !== 'all') {
+      const numFirmsInt = parseInt(numFirms);
+      if (!isNaN(numFirmsInt) && numFirmsInt >= 2 && numFirmsInt <= 10) {
+        filter['config.numFirms'] = numFirmsInt;
+      }
+    }
+
+    // Filter by communication enabled
+    const communication = req.query.communication as string;
+    if (communication && communication !== 'all') {
+      filter['config.communication.allowCommunication'] = communication === 'true';
+    }
+
+    // Filter by competition mode
+    const competitionMode = req.query.competitionMode as string;
+    if (competitionMode && competitionMode !== 'all') {
+      filter['config.competitionMode'] = competitionMode;
+    }
+
+    // Filter by date range
+    const dateFrom = req.query.dateFrom as string;
+    const dateTo = req.query.dateTo as string;
+    if (dateFrom || dateTo) {
+      filter.completedAt = {};
+      if (dateFrom) {
+        (filter.completedAt as Record<string, Date>).$gte = new Date(dateFrom);
+      }
+      if (dateTo) {
+        // Add one day to include the entire end date
+        const endDate = new Date(dateTo);
+        endDate.setDate(endDate.getDate() + 1);
+        (filter.completedAt as Record<string, Date>).$lt = endDate;
+      }
+    }
+
     const [games, total] = await Promise.all([
-      GameResultModel.find()
+      GameResultModel.find(filter)
         .sort({ completedAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      GameResultModel.countDocuments(),
+      GameResultModel.countDocuments(filter),
     ]);
 
     const response: ApiResponse<{
@@ -347,6 +387,246 @@ router.get('/games/:gameId/export', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Failed to export game',
+    });
+  }
+});
+
+// Bulk delete games
+router.delete('/games/bulk', async (req: Request, res: Response) => {
+  try {
+    if (!isMongoConnected()) {
+      res.status(503).json({
+        success: false,
+        error: 'Database not connected',
+      });
+      return;
+    }
+
+    const { gameIds } = req.body as { gameIds: string[] };
+
+    if (!gameIds || !Array.isArray(gameIds) || gameIds.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'gameIds array is required',
+      });
+      return;
+    }
+
+    // Limit to 100 games per request
+    if (gameIds.length > 100) {
+      res.status(400).json({
+        success: false,
+        error: 'Maximum 100 games can be deleted at once',
+      });
+      return;
+    }
+
+    const result = await GameResultModel.deleteMany({ gameId: { $in: gameIds } });
+
+    res.json({
+      success: true,
+      data: {
+        deletedCount: result.deletedCount,
+        requestedCount: gameIds.length,
+      },
+    });
+  } catch (error) {
+    logger.error('Error bulk deleting games:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete games',
+    });
+  }
+});
+
+// Bulk export games as combined CSV
+router.post('/games/bulk-export', async (req: Request, res: Response) => {
+  try {
+    if (!isMongoConnected()) {
+      res.status(503).json({
+        success: false,
+        error: 'Database not connected',
+      });
+      return;
+    }
+
+    const { gameIds, format, includeReasoning, includeChat } = req.body as {
+      gameIds: string[];
+      format: 'rounds' | 'summary';
+      includeReasoning: boolean;
+      includeChat: boolean;
+    };
+
+    if (!gameIds || !Array.isArray(gameIds) || gameIds.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'gameIds array is required',
+      });
+      return;
+    }
+
+    // Limit to 50 games per request
+    if (gameIds.length > 50) {
+      res.status(400).json({
+        success: false,
+        error: 'Maximum 50 games can be exported at once',
+      });
+      return;
+    }
+
+    const games = await GameResultModel.find({ gameId: { $in: gameIds } }).lean();
+
+    if (games.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: 'No games found',
+      });
+      return;
+    }
+
+    let csv = '';
+    const exportFormat = format || 'rounds';
+
+    if (exportFormat === 'rounds') {
+      // Find max number of firms across all games
+      let maxFirms = 2;
+      for (const game of games) {
+        const numFirms = game.config.numFirms || 2;
+        if (numFirms > maxFirms) maxFirms = numFirms;
+      }
+
+      // Build header with GameId column first
+      const headers = ['GameId', 'Replication', 'Round', 'Timestamp', 'CompetitionMode', 'NumFirms', 'Gamma'];
+
+      // Add firm columns based on max firms
+      for (let i = 1; i <= maxFirms; i++) {
+        headers.push(`Firm${i}_Decision`);
+        headers.push(`Firm${i}_Profit`);
+        if (includeReasoning) {
+          headers.push(`Firm${i}_Reasoning`);
+        }
+      }
+
+      headers.push('TotalQuantity', 'MarketPrice');
+
+      if (includeChat) {
+        headers.push('Communication');
+      }
+
+      csv = headers.map(h => escapeCSV(h)).join(',') + '\n';
+
+      // Add data rows for each game
+      for (const game of games) {
+        const numFirms = game.config.numFirms || 2;
+        const isBertrand = game.config.competitionMode === 'bertrand';
+        const replications = game.replications.length > 0
+          ? game.replications
+          : [{ replicationNumber: 1, rounds: game.rounds }];
+
+        for (const rep of replications) {
+          for (const round of (rep as ReplicationResult).rounds) {
+            const row: (string | number)[] = [
+              game.gameId,
+              (rep as ReplicationResult).replicationNumber,
+              round.roundNumber,
+              round.timestamp ? new Date(round.timestamp).toISOString() : '',
+              game.config.competitionMode || 'cournot',
+              numFirms,
+              game.config.gamma ?? 1,
+            ];
+
+            // Get firm results
+            const firmResults = round.firmResults || [
+              { firmId: 1, quantity: round.firm1Quantity, profit: round.firm1Profit, reasoning: round.firm1Reasoning },
+              { firmId: 2, quantity: round.firm2Quantity, profit: round.firm2Profit, reasoning: round.firm2Reasoning },
+            ];
+
+            for (let i = 1; i <= maxFirms; i++) {
+              const firm = firmResults.find(f => f.firmId === i);
+              row.push(firm?.quantity ?? '');
+              row.push(firm?.profit ?? '');
+              if (includeReasoning) {
+                row.push(firm?.reasoning || '');
+              }
+            }
+
+            row.push(round.totalQuantity);
+            row.push(round.marketPrice);
+
+            if (includeChat) {
+              const chatText = round.communication?.map(m => `F${m.firm}: ${m.message}`).join(' | ') || '';
+              row.push(chatText);
+            }
+
+            csv += row.map(v => escapeCSV(v)).join(',') + '\n';
+          }
+        }
+      }
+    } else {
+      // Summary format
+      const headers = [
+        'GameId',
+        'Replication',
+        'CompetitionMode',
+        'NumFirms',
+        'Gamma',
+        'TotalRounds',
+        'AvgFirm1Quantity',
+        'AvgFirm2Quantity',
+        'TotalFirm1Profit',
+        'TotalFirm2Profit',
+        'AvgMarketPrice',
+        'StartedAt',
+        'CompletedAt',
+      ];
+
+      csv = headers.map(h => escapeCSV(h)).join(',') + '\n';
+
+      for (const game of games) {
+        const replications = game.replications.length > 0
+          ? game.replications
+          : [{
+              replicationNumber: 1,
+              rounds: game.rounds,
+              summary: game.summary,
+              startedAt: game.startedAt,
+              completedAt: game.completedAt,
+            }];
+
+        for (const rep of replications) {
+          const repData = rep as ReplicationResult & { summary?: typeof game.summary; startedAt?: Date; completedAt?: Date };
+          const summary = repData.summary || game.summary;
+          const row = [
+            game.gameId,
+            repData.replicationNumber,
+            game.config.competitionMode || 'cournot',
+            game.config.numFirms || 2,
+            game.config.gamma ?? 1,
+            repData.rounds.length,
+            summary.avgFirm1Quantity,
+            summary.avgFirm2Quantity,
+            summary.totalFirm1Profit,
+            summary.totalFirm2Profit,
+            summary.avgMarketPrice,
+            repData.startedAt ? new Date(repData.startedAt).toISOString() : '',
+            repData.completedAt ? new Date(repData.completedAt).toISOString() : '',
+          ];
+
+          csv += row.map(v => escapeCSV(v)).join(',') + '\n';
+        }
+      }
+    }
+
+    // Set headers for CSV download
+    const filename = `games_bulk_export_${exportFormat}_${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
+  } catch (error) {
+    logger.error('Error bulk exporting games:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to export games',
     });
   }
 });

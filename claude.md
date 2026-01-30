@@ -268,6 +268,16 @@ io-laboratory/
 
 ### 4. Panel de Administración (AdminPanel.tsx)
 - Lista de juegos con modo y número de firmas
+- **Filtros avanzados**:
+  - Por número de firmas (2-10)
+  - Por comunicación habilitada/deshabilitada
+  - Por modo de competencia (Cournot/Bertrand)
+  - Por rango de fechas
+- **Selección múltiple y operaciones en lote**:
+  - Checkbox para seleccionar juegos individualmente o todos en página
+  - Selección persistente al cambiar de página
+  - Eliminación en lote (máximo 100 juegos)
+  - Exportación en lote a CSV combinado (máximo 50 juegos)
 - **Vista detallada de cada juego**:
   - Configuración completa (modo, γ, demanda, costes)
   - Tipo de demanda y especificaciones de parámetros (distribuciones)
@@ -350,14 +360,28 @@ VITE_SOCKET_URL=http://localhost:3001
 ## API REST
 
 - `GET /api/health` - Health check
-- `GET /api/admin/games` - Lista juegos (paginado)
+- `GET /api/admin/games` - Lista juegos (paginado con filtros)
+  - Query params:
+    - `page`: número de página
+    - `limit`: juegos por página
+    - `numFirms`: filtrar por número de firmas (2-10)
+    - `communication`: `true` | `false` | `all` - filtrar por comunicación
+    - `competitionMode`: `cournot` | `bertrand` | `all` - filtrar por modo
+    - `dateFrom`: fecha inicio (YYYY-MM-DD)
+    - `dateTo`: fecha fin (YYYY-MM-DD)
 - `GET /api/admin/games/:gameId` - Detalle completo de juego (incluye prompts)
 - `GET /api/admin/games/:gameId/export` - Exportar juego a CSV
   - Query params:
     - `format`: `rounds` (por ronda) | `summary` (por réplica)
     - `reasoning`: `true` | `false` - Incluir razonamientos de LLMs
     - `chat`: `true` | `false` - Incluir mensajes de comunicación
-- `DELETE /api/admin/games/:gameId` - Eliminar juego
+- `DELETE /api/admin/games/:gameId` - Eliminar juego individual
+- `DELETE /api/admin/games/bulk` - Eliminar múltiples juegos
+  - Body: `{ gameIds: string[] }` (máximo 100)
+  - Response: `{ deletedCount, requestedCount }`
+- `POST /api/admin/games/bulk-export` - Exportar múltiples juegos a CSV combinado
+  - Body: `{ gameIds: string[], format: 'rounds'|'summary', includeReasoning: boolean, includeChat: boolean }` (máximo 50)
+  - Response: CSV con columna `GameId` para identificar cada juego
 - `GET /api/admin/stats` - Estadísticas agregadas
 
 ## Archivos Clave para Modificaciones
@@ -605,3 +629,4 @@ Al hacer push a main, ambos servicios se despliegan automáticamente.
 - [x] ~~Exportar resultados a CSV~~ ✓ Implementado (con razonamientos y comunicación)
 - [x] ~~Google Gemini~~ ✓ Implementado (modelos gratuitos con rate limiting)
 - [x] ~~Más funciones de demanda~~ ✓ Implementado (CES, Logit, Exponencial)
+- [x] ~~Filtros y operaciones en lote en Admin Panel~~ ✓ Implementado (filtros, selección múltiple, eliminación/exportación en lote)

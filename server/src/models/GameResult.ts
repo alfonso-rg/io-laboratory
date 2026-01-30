@@ -241,5 +241,9 @@ const GameResultSchema = new Schema({
 GameResultSchema.index({ 'config.firm1Model': 1 });
 GameResultSchema.index({ 'config.firm2Model': 1 });
 GameResultSchema.index({ completedAt: -1 });
+// Compound indexes for filter optimization
+GameResultSchema.index({ 'config.numFirms': 1, completedAt: -1 });
+GameResultSchema.index({ 'config.competitionMode': 1, completedAt: -1 });
+GameResultSchema.index({ 'config.communication.allowCommunication': 1, completedAt: -1 });
 
 export const GameResultModel = mongoose.model<GameResultDocument>('GameResult', GameResultSchema);

@@ -202,6 +202,14 @@ interface GameStats {
   }[];
 }
 
+interface Filters {
+  numFirms: string;
+  communication: string;
+  competitionMode: string;
+  dateFrom: string;
+  dateTo: string;
+}
+
 export function AdminPanel() {
   const [games, setGames] = useState<GameResult[]>([]);
   const [stats, setStats] = useState<GameStats | null>(null);
@@ -215,10 +223,27 @@ export function AdminPanel() {
   const [exportIncludeReasoning, setExportIncludeReasoning] = useState(false);
   const [exportIncludeChat, setExportIncludeChat] = useState(false);
 
+  // Filters state
+  const [filters, setFilters] = useState<Filters>({
+    numFirms: 'all',
+    communication: 'all',
+    competitionMode: 'all',
+    dateFrom: '',
+    dateTo: '',
+  });
+
+  // Selection state
+  const [selectedGameIds, setSelectedGameIds] = useState<Set<string>>(new Set());
+
+  // Bulk operation modals
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [showBulkExportModal, setShowBulkExportModal] = useState(false);
+  const [bulkOperationLoading, setBulkOperationLoading] = useState(false);
+
   useEffect(() => {
     fetchGames();
     fetchStats();
-  }, [page]);
+  }, [page, filters]);
 
   const fetchGameDetails = async (gameId: string) => {
     setLoadingDetails(true);
@@ -256,11 +281,32 @@ export function AdminPanel() {
 
   const fetchGames = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/games?page=${page}&limit=10`);
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: '10',
+      });
+
+      // Add filter params
+      if (filters.numFirms !== 'all') params.append('numFirms', filters.numFirms);
+      if (filters.communication !== 'all') params.append('communication', filters.communication);
+      if (filters.competitionMode !== 'all') params.append('competitionMode', filters.competitionMode);
+      if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
+      if (filters.dateTo) params.append('dateTo', filters.dateTo);
+
+      const response = await fetch(`${API_BASE_URL}/api/admin/games?${params}`);
       const data = await response.json();
       if (data.success) {
         setGames(data.data.games);
         setTotalPages(data.data.pagination.pages);
+        // Preserve selection only for games that are still in the results
+        const newGameIds = new Set(data.data.games.map((g: GameResult) => g.gameId));
+        setSelectedGameIds(prev => {
+          const filtered = new Set<string>();
+          prev.forEach(id => {
+            if (newGameIds.has(id)) filtered.add(id);
+          });
+          return filtered;
+        });
       } else {
         setError(data.error);
       }
@@ -320,6 +366,134 @@ export function AdminPanel() {
       document.body.removeChild(link);
     } catch (err) {
       setError('Failed to export game');
+    }
+  };
+
+  // Selection helpers
+  const toggleGameSelection = (gameId: string) => {
+    setSelectedGameIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(gameId)) {
+        newSet.delete(gameId);
+      } else {
+        newSet.add(gameId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAllOnPage = () => {
+    const currentPageIds = games.map(g => g.gameId);
+    const allSelected = currentPageIds.every(id => selectedGameIds.has(id));
+
+    if (allSelected) {
+      // Deselect all on current page
+      setSelectedGameIds(prev => {
+        const newSet = new Set(prev);
+        currentPageIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
+    } else {
+      // Select all on current page
+      setSelectedGameIds(prev => {
+        const newSet = new Set(prev);
+        currentPageIds.forEach(id => newSet.add(id));
+        return newSet;
+      });
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedGameIds(new Set());
+  };
+
+  // Filter helpers
+  const updateFilter = (key: keyof Filters, value: string) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+    setPage(1); // Reset to page 1 when filters change
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      numFirms: 'all',
+      communication: 'all',
+      competitionMode: 'all',
+      dateFrom: '',
+      dateTo: '',
+    });
+    setPage(1);
+  };
+
+  const hasActiveFilters = filters.numFirms !== 'all' ||
+    filters.communication !== 'all' ||
+    filters.competitionMode !== 'all' ||
+    filters.dateFrom !== '' ||
+    filters.dateTo !== '';
+
+  // Bulk operations
+  const bulkDeleteGames = async () => {
+    if (selectedGameIds.size === 0) return;
+
+    setBulkOperationLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/games/bulk`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gameIds: Array.from(selectedGameIds) }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setSelectedGameIds(new Set());
+        setShowBulkDeleteConfirm(false);
+        fetchGames();
+        fetchStats();
+      } else {
+        setError(data.error);
+      }
+    } catch (err) {
+      setError('Failed to delete games');
+    } finally {
+      setBulkOperationLoading(false);
+    }
+  };
+
+  const bulkExportGames = async (format: 'rounds' | 'summary') => {
+    if (selectedGameIds.size === 0) return;
+
+    setBulkOperationLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/games/bulk-export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gameIds: Array.from(selectedGameIds),
+          format,
+          includeReasoning: exportIncludeReasoning,
+          includeChat: exportIncludeChat,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || 'Failed to export games');
+        return;
+      }
+
+      // Download the CSV
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `games_bulk_export_${format}_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setShowBulkExportModal(false);
+    } catch (err) {
+      setError('Failed to export games');
+    } finally {
+      setBulkOperationLoading(false);
     }
   };
 
@@ -396,14 +570,123 @@ export function AdminPanel() {
       <div className="bg-white p-6 rounded-lg shadow">
         <h2 className="text-xl font-semibold mb-4">Game History</h2>
 
+        {/* Filter Bar */}
+        <div className="mb-4 p-4 bg-gray-50 rounded-lg border">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div className="flex flex-col">
+              <label className="text-xs text-gray-600 mb-1">Firms</label>
+              <select
+                value={filters.numFirms}
+                onChange={(e) => updateFilter('numFirms', e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+              >
+                <option value="all">All</option>
+                {[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col">
+              <label className="text-xs text-gray-600 mb-1">Communication</label>
+              <select
+                value={filters.communication}
+                onChange={(e) => updateFilter('communication', e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+              >
+                <option value="all">All</option>
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </div>
+            <div className="flex flex-col">
+              <label className="text-xs text-gray-600 mb-1">Mode</label>
+              <select
+                value={filters.competitionMode}
+                onChange={(e) => updateFilter('competitionMode', e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+              >
+                <option value="all">All</option>
+                <option value="cournot">Cournot</option>
+                <option value="bertrand">Bertrand</option>
+              </select>
+            </div>
+            <div className="flex flex-col">
+              <label className="text-xs text-gray-600 mb-1">From</label>
+              <input
+                type="date"
+                value={filters.dateFrom}
+                onChange={(e) => updateFilter('dateFrom', e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div className="flex flex-col">
+              <label className="text-xs text-gray-600 mb-1">To</label>
+              <input
+                type="date"
+                value={filters.dateTo}
+                onChange={(e) => updateFilter('dateTo', e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded hover:bg-gray-100"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Bulk Actions Bar */}
+        {selectedGameIds.size > 0 && (
+          <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200 flex items-center justify-between">
+            <span className="text-sm text-blue-700 font-medium">
+              {selectedGameIds.size} game{selectedGameIds.size > 1 ? 's' : ''} selected
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowBulkExportModal(true)}
+                className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+              >
+                Export Selected
+              </button>
+              <button
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                Delete Selected
+              </button>
+              <button
+                onClick={clearSelection}
+                className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded hover:bg-gray-100"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+
         {games.length === 0 ? (
-          <div className="text-center text-gray-500 py-8">No games recorded yet</div>
+          <div className="text-center text-gray-500 py-8">
+            {hasActiveFilters ? 'No games match the current filters' : 'No games recorded yet'}
+          </div>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b">
+                    <th className="px-2 py-2 text-left w-8">
+                      <input
+                        type="checkbox"
+                        checked={games.length > 0 && games.every(g => selectedGameIds.has(g.gameId))}
+                        onChange={toggleSelectAllOnPage}
+                        className="rounded"
+                        title="Select all on this page"
+                      />
+                    </th>
                     <th className="px-4 py-2 text-left">Date</th>
                     <th className="px-4 py-2 text-left">Mode</th>
                     <th className="px-4 py-2 text-left">Firms</th>
@@ -415,7 +698,18 @@ export function AdminPanel() {
                 </thead>
                 <tbody>
                   {games.map((game) => (
-                    <tr key={game.gameId} className="border-b hover:bg-gray-50">
+                    <tr
+                      key={game.gameId}
+                      className={`border-b hover:bg-gray-50 ${selectedGameIds.has(game.gameId) ? 'bg-blue-50' : ''}`}
+                    >
+                      <td className="px-2 py-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedGameIds.has(game.gameId)}
+                          onChange={() => toggleGameSelection(game.gameId)}
+                          className="rounded"
+                        />
+                      </td>
                       <td className="px-4 py-2">
                         {new Date(game.completedAt).toLocaleString()}
                       </td>
@@ -1024,6 +1318,87 @@ export function AdminPanel() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold mb-4">Confirm Deletion</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete {selectedGameIds.size} game{selectedGameIds.size > 1 ? 's' : ''}?
+              This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowBulkDeleteConfirm(false)}
+                disabled={bulkOperationLoading}
+                className="px-4 py-2 border rounded hover:bg-gray-100 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={bulkDeleteGames}
+                disabled={bulkOperationLoading}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+              >
+                {bulkOperationLoading ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Export Modal */}
+      {showBulkExportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold mb-4">Export {selectedGameIds.size} Game{selectedGameIds.size > 1 ? 's' : ''}</h3>
+            <div className="mb-6 space-y-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={exportIncludeReasoning}
+                  onChange={(e) => setExportIncludeReasoning(e.target.checked)}
+                  className="rounded"
+                />
+                Include LLM Reasoning
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={exportIncludeChat}
+                  onChange={(e) => setExportIncludeChat(e.target.checked)}
+                  className="rounded"
+                />
+                Include Communication
+              </label>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowBulkExportModal(false)}
+                disabled={bulkOperationLoading}
+                className="px-4 py-2 border rounded hover:bg-gray-100 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => bulkExportGames('rounds')}
+                disabled={bulkOperationLoading}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+              >
+                {bulkOperationLoading ? 'Exporting...' : 'Export Rounds'}
+              </button>
+              <button
+                onClick={() => bulkExportGames('summary')}
+                disabled={bulkOperationLoading}
+                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
+              >
+                {bulkOperationLoading ? 'Exporting...' : 'Export Summary'}
+              </button>
+            </div>
           </div>
         </div>
       )}
