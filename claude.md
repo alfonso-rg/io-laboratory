@@ -11,6 +11,11 @@ Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 
 
 ## Características Principales
 
+### Autenticación
+- **Protección por contraseña**: Acceso controlado mediante variable de entorno `APP_PASSWORD`
+- Si `APP_PASSWORD` no está definida, el acceso es libre (modo desarrollo)
+- La sesión se mantiene mientras el navegador esté abierto (sessionStorage)
+
 ### Modos de Competencia
 - **Cournot**: Competencia en cantidades (por defecto)
 - **Bertrand**: Competencia en precios
@@ -329,6 +334,7 @@ OPENAI_API_KEY=sk-...
 GOOGLE_API_KEY=...           # Opcional, para modelos Gemini
 CLIENT_URL=http://localhost:5173
 NODE_ENV=development
+APP_PASSWORD=...             # Opcional, contraseña de acceso (si no se define, acceso libre)
 ```
 
 **Client (.env):**
@@ -359,6 +365,14 @@ VITE_SOCKET_URL=http://localhost:3001
 
 ## API REST
 
+### Autenticación
+- `GET /api/auth/status` - Verifica si la autenticación está habilitada
+  - Response: `{ authRequired: boolean }`
+- `POST /api/auth/verify` - Verifica la contraseña
+  - Body: `{ password: string }`
+  - Response: `{ success: boolean }`
+
+### Admin
 - `GET /api/health` - Health check
 - `GET /api/admin/games` - Lista juegos (paginado con filtros)
   - Query params:

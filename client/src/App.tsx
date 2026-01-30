@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { useGameStore } from './stores/gameStore';
 import { useSocket } from './hooks/useSocket';
@@ -5,6 +6,10 @@ import { HomePage } from './components/HomePage';
 import { GameBoard } from './components/game/GameBoard';
 import { GameResults } from './components/results/GameResults';
 import { AdminPanel } from './components/admin/AdminPanel';
+import { Login } from './components/Login';
+
+const API_BASE_URL = import.meta.env.VITE_SOCKET_URL ||
+  (window.location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://io-laboratory.onrender.com');
 
 function Navigation() {
   const location = useLocation();
@@ -104,6 +109,54 @@ function AppContent() {
 }
 
 export default function App() {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+
+  useEffect(() => {
+    // Check if authentication is required
+    const checkAuth = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/status`);
+        const data = await response.json();
+
+        if (data.success) {
+          setAuthRequired(data.authRequired);
+
+          // If auth is required, check if already authenticated
+          if (data.authRequired) {
+            const isAuth = sessionStorage.getItem('io-lab-authenticated') === 'true';
+            setAuthenticated(isAuth);
+          } else {
+            setAuthenticated(true);
+          }
+        }
+      } catch (err) {
+        // If we can't check, assume no auth required (dev mode)
+        console.error('Failed to check auth status:', err);
+        setAuthenticated(true);
+      } finally {
+        setAuthChecked(true);
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  // Show loading while checking auth
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-gray-500">Loading...</div>
+      </div>
+    );
+  }
+
+  // Show login if auth required and not authenticated
+  if (authRequired && !authenticated) {
+    return <Login onLogin={() => setAuthenticated(true)} />;
+  }
+
   return (
     <BrowserRouter>
       <AppContent />

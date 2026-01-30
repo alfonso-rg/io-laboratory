@@ -7,6 +7,7 @@ import { connectDatabase } from './config/database';
 import { logger } from './config/logger';
 import { setupGameHandlers } from './socket/gameHandlers';
 import adminRoutes from './routes/admin';
+import authRoutes from './routes/auth';
 import {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -62,6 +63,7 @@ async function main() {
   setupGameHandlers(io);
 
   // API routes
+  app.use('/api/auth', authRoutes);
   app.use('/api/admin', adminRoutes);
 
   // Health check
