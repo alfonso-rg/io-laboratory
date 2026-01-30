@@ -505,16 +505,16 @@ export function AdvancedSettings({ config, setConfig, disabled }: AdvancedSettin
                 <>
                   <ParameterInput
                     label="Scale (A)"
-                    spec={config.demandFunction?.type === 'isoelastic'
+                    spec={config.demandFunction?.type === 'ces'
                       ? config.demandFunction.scale
                       : fixedParam(100)}
                     onChange={(newSpec) => {
                       setConfig({
                         demandFunction: {
-                          type: 'isoelastic',
+                          type: 'ces',
                           scale: newSpec,
-                          elasticity: config.demandFunction?.type === 'isoelastic'
-                            ? config.demandFunction.elasticity
+                          substitutionElasticity: config.demandFunction?.type === 'ces'
+                            ? config.demandFunction.substitutionElasticity
                             : fixedParam(2),
                         },
                       });
@@ -523,18 +523,18 @@ export function AdvancedSettings({ config, setConfig, disabled }: AdvancedSettin
                     min={0.01}
                   />
                   <ParameterInput
-                    label="Elasticity (ε)"
-                    spec={config.demandFunction?.type === 'isoelastic'
-                      ? config.demandFunction.elasticity
+                    label="Substitution Elasticity (σ)"
+                    spec={config.demandFunction?.type === 'ces'
+                      ? config.demandFunction.substitutionElasticity
                       : fixedParam(2)}
                     onChange={(newSpec) => {
                       setConfig({
                         demandFunction: {
-                          type: 'isoelastic',
-                          scale: config.demandFunction?.type === 'isoelastic'
+                          type: 'ces',
+                          scale: config.demandFunction?.type === 'ces'
                             ? config.demandFunction.scale
                             : fixedParam(100),
-                          elasticity: newSpec,
+                          substitutionElasticity: newSpec,
                         },
                       });
                     }}

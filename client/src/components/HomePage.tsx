@@ -44,16 +44,6 @@ export function HomePage() {
           },
         });
         break;
-      case 'isoelastic':
-        // P = A * Q^(-1/ε), default A=100, ε=2
-        setConfig({
-          demandFunction: {
-            type: 'isoelastic',
-            scale: fixedParam(100),
-            elasticity: fixedParam(2),
-          },
-        });
-        break;
       case 'ces':
         // P = A * Q^(-1/σ), default A=100, σ=2
         setConfig({
@@ -86,14 +76,6 @@ export function HomePage() {
         break;
     }
   };
-
-  // Get isoelastic parameters from config
-  const isoelasticScale = config.demandFunction?.type === 'isoelastic'
-    ? (config.demandFunction.scale.value ?? 100)
-    : 100;
-  const isoelasticElasticity = config.demandFunction?.type === 'isoelastic'
-    ? (config.demandFunction.elasticity.value ?? 2)
-    : 2;
 
   // Get CES parameters from config
   const cesScale = config.demandFunction?.type === 'ces'
@@ -379,18 +361,6 @@ export function HomePage() {
                 <input
                   type="radio"
                   name="demandType"
-                  value="isoelastic"
-                  checked={demandFunctionType === 'isoelastic'}
-                  onChange={() => handleDemandTypeChange('isoelastic')}
-                  disabled={isRunning}
-                  className="text-blue-600"
-                />
-                <span className="text-sm">Isoelastic</span>
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="demandType"
                   value="ces"
                   checked={demandFunctionType === 'ces'}
                   onChange={() => handleDemandTypeChange('ces')}
@@ -431,7 +401,6 @@ export function HomePage() {
             {demandFunctionType === 'linear' && (gamma < 1
               ? `p_i = a - b×(q_i + ${gamma.toFixed(2)}×Σq_j)`
               : 'P(Q) = a - b × Q')}
-            {demandFunctionType === 'isoelastic' && 'P(Q) = A × Q^(-1/ε)'}
             {demandFunctionType === 'ces' && 'P(Q) = A × Q^(-1/σ)'}
             {demandFunctionType === 'logit' && 'P(Q) = a - b × ln(Q)'}
             {demandFunctionType === 'exponential' && 'P(Q) = A × e^(-bQ)'}
@@ -485,60 +454,6 @@ export function HomePage() {
                     className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
                     disabled={isRunning}
                   />
-                </div>
-              </>
-            )}
-
-            {/* Isoelastic Demand Inputs */}
-            {demandFunctionType === 'isoelastic' && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Scale Parameter (A)
-                  </label>
-                  <input
-                    type="number"
-                    value={isoelasticScale}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value) || 100;
-                      setConfig({
-                        demandFunction: {
-                          type: 'isoelastic',
-                          scale: fixedParam(val),
-                          elasticity: fixedParam(isoelasticElasticity),
-                        },
-                      });
-                    }}
-                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
-                    disabled={isRunning}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Scales the price level</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Price Elasticity (ε)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0.1"
-                    value={isoelasticElasticity}
-                    onChange={(e) => {
-                      const val = Math.max(0.1, parseFloat(e.target.value) || 2);
-                      setConfig({
-                        demandFunction: {
-                          type: 'isoelastic',
-                          scale: fixedParam(isoelasticScale),
-                          elasticity: fixedParam(val),
-                        },
-                      });
-                    }}
-                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
-                    disabled={isRunning}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    ε &gt; 1: elastic demand, ε &lt; 1: inelastic demand
-                  </p>
                 </div>
               </>
             )}
@@ -822,7 +737,7 @@ export function HomePage() {
               <div className="text-center py-4">
                 <p className="text-gray-500 italic">N/A</p>
                 <p className="text-xs text-gray-400 mt-2">
-                  {nPolyEquilibrium.message || 'Nash equilibrium not analytically calculable for isoelastic demand'}
+                  {nPolyEquilibrium.message || 'Nash equilibrium not analytically calculable for non-linear demand'}
                 </p>
               </div>
             ) : (

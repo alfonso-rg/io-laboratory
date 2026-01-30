@@ -236,8 +236,6 @@ router.get('/games/:gameId/export', async (req: Request, res: Response) => {
         headers.push('Realized_Gamma');
         if (game.config.demandFunction?.type === 'linear') {
           headers.push('Realized_Intercept', 'Realized_Slope');
-        } else if (game.config.demandFunction?.type === 'isoelastic') {
-          headers.push('Realized_Scale', 'Realized_Elasticity');
         } else if (game.config.demandFunction?.type === 'ces') {
           headers.push('Realized_Scale', 'Realized_SubstitutionElasticity');
         } else if (game.config.demandFunction?.type === 'logit') {
@@ -296,9 +294,6 @@ router.get('/games/:gameId/export', async (req: Request, res: Response) => {
             if (game.config.demandFunction?.type === 'linear') {
               row.push(rp?.demand?.intercept ?? '');
               row.push(rp?.demand?.slope ?? '');
-            } else if (game.config.demandFunction?.type === 'isoelastic') {
-              row.push(rp?.demand?.scale ?? '');
-              row.push(rp?.demand?.elasticity ?? '');
             } else if (game.config.demandFunction?.type === 'ces') {
               row.push(rp?.demand?.scale ?? '');
               row.push(rp?.demand?.substitutionElasticity ?? '');

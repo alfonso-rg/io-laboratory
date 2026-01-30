@@ -100,13 +100,6 @@ export class ParameterService {
             slope: this.drawParameter(config.demandFunction.slope),
           };
           break;
-        case 'isoelastic':
-          demand = {
-            type: 'isoelastic',
-            scale: this.drawParameter(config.demandFunction.scale),
-            elasticity: this.drawParameter(config.demandFunction.elasticity),
-          };
-          break;
         case 'ces':
           demand = {
             type: 'ces',
@@ -196,10 +189,6 @@ export class ParameterService {
         case 'linear':
           if (config.demandFunction.intercept.type !== 'fixed') return true;
           if (config.demandFunction.slope.type !== 'fixed') return true;
-          break;
-        case 'isoelastic':
-          if (config.demandFunction.scale.type !== 'fixed') return true;
-          if (config.demandFunction.elasticity.type !== 'fixed') return true;
           break;
         case 'ces':
           if (config.demandFunction.scale.type !== 'fixed') return true;

@@ -32,7 +32,6 @@ Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 
 
 ### Funciones de Demanda
 - **Lineal**: P = a - b×Q (por defecto)
-- **Isoelástica**: P = A × Q^(-1/ε)
 - **CES**: P = A × Q^(-1/σ) (Constant Elasticity of Substitution)
 - **Logit**: P = a - b × ln(Q)
 - **Exponencial**: P = A × e^(-bQ)
@@ -45,7 +44,7 @@ Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 
   - Fixed: Mismo valor en todas las rondas y réplicas
   - Per-replication: Se regeneran al inicio de cada réplica
   - Per-round: Se regeneran cada ronda
-- **Parámetros configurables**: Demanda (a, b o A, ε), gamma (γ), costes por firma (c, d)
+- **Parámetros configurables**: Demanda (a, b o A, σ), gamma (γ), costes por firma (c, d)
 
 ### Modelos LLM Disponibles
 
@@ -99,17 +98,6 @@ p_i = α - q_i - γ * Σ(q_j, j≠i)
 ```
 q_i = (1/(1-γ²)) * [α - p_i - γ(α - p_j)]
 ```
-
-### Demanda Isoelástica
-
-**Precio de mercado:**
-```
-P = A × Q^(-1/ε)
-```
-Donde:
-- A: Parámetro de escala
-- ε: Elasticidad precio de la demanda (ε > 1)
-- Q: Cantidad total de mercado
 
 ### Demanda CES (Constant Elasticity of Substitution)
 
@@ -234,7 +222,7 @@ io-laboratory/
 - **Modo de competencia**: Cournot (cantidades) o Bertrand (precios)
 - **Número de firmas**: Slider 2-10
 - **Diferenciación de productos**: Slider γ (0-1)
-- **Función de demanda**: Lineal (P = a - b×Q) o Isoelástica (P = A×Q^(-1/ε))
+- **Función de demanda**: Lineal (P = a - b×Q) o CES (P = A×Q^(-1/ε))
 - Parámetros de demanda según tipo seleccionado
 - Costes por firma (c_i, d_i) - cards dinámicas con colores
 - Selección de modelos LLM por firma con precios
@@ -433,20 +421,13 @@ interface ParameterSpec {
 }
 
 // Tipos de función de demanda
-type DemandFunctionType = 'linear' | 'isoelastic' | 'ces' | 'logit' | 'exponential';
+type DemandFunctionType = 'linear' | 'ces' | 'logit' | 'exponential';
 
 // Configuración de demanda lineal
 interface LinearDemandConfig {
   type: 'linear';
   intercept: ParameterSpec;  // a
   slope: ParameterSpec;      // b
-}
-
-// Configuración de demanda isoelástica
-interface IsoelasticDemandConfig {
-  type: 'isoelastic';
-  scale: ParameterSpec;       // A
-  elasticity: ParameterSpec;  // ε
 }
 
 // Configuración de demanda CES
@@ -470,7 +451,7 @@ interface ExponentialDemandConfig {
   decayRate: ParameterSpec; // b
 }
 
-type DemandConfig = LinearDemandConfig | IsoelasticDemandConfig | CESDemandConfig | LogitDemandConfig | ExponentialDemandConfig;
+type DemandConfig = LinearDemandConfig | CESDemandConfig | LogitDemandConfig | ExponentialDemandConfig;
 
 // Valores realizados para una ronda
 interface RealizedParameters {
@@ -478,8 +459,7 @@ interface RealizedParameters {
     type: DemandFunctionType;
     intercept?: number;            // Lineal, Logit
     slope?: number;                // Lineal
-    scale?: number;                // Isoelástica, CES, Exponencial
-    elasticity?: number;           // Isoelástica
+    scale?: number;                // CES, Exponencial
     substitutionElasticity?: number; // CES
     priceCoefficient?: number;     // Logit
     decayRate?: number;            // Exponencial

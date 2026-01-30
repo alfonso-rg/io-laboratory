@@ -251,14 +251,14 @@ function solveLinearSystem(A: number[][], b: number[]): number[] | null {
 
 /**
  * Calculate N-poly Cournot equilibrium
- * Returns a non-calculable result for isoelastic demand
+ * Returns a non-calculable result for non-linear demand
  */
 export function calculateNPolyCournotEquilibrium(config: CournotConfig): NPolyEquilibrium | null {
   const demandType = getDemandFunctionType(config);
   const numFirms = getNumFirms(config);
 
-  // For isoelastic demand, Nash equilibrium is not analytically calculable
-  if (demandType === 'isoelastic') {
+  // For non-linear demand, Nash equilibrium is not analytically calculable
+  if (demandType !== 'linear') {
     return {
       competitionMode: 'cournot',
       firms: Array.from({ length: numFirms }, (_, i) => ({
@@ -271,7 +271,7 @@ export function calculateNPolyCournotEquilibrium(config: CournotConfig): NPolyEq
       avgMarketPrice: NaN,
       totalProfit: NaN,
       calculable: false,
-      message: 'Nash equilibrium not analytically calculable for isoelastic demand',
+      message: 'Nash equilibrium not analytically calculable for non-linear demand',
     };
   }
 

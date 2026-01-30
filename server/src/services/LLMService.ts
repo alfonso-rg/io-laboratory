@@ -158,7 +158,6 @@ export class LLMService {
     const demandIntercept = realizedParams?.demand?.intercept ?? config.demandIntercept;
     const demandSlope = realizedParams?.demand?.slope ?? config.demandSlope;
     const demandScale = realizedParams?.demand?.scale ?? 100;
-    const demandElasticity = realizedParams?.demand?.elasticity ?? 2;
     const demandSubstitutionElasticity = realizedParams?.demand?.substitutionElasticity ?? 2;
     const demandPriceCoefficient = realizedParams?.demand?.priceCoefficient ?? 10;
     const demandDecayRate = realizedParams?.demand?.decayRate ?? 0.01;
@@ -191,15 +190,7 @@ export class LLMService {
 
     // Demand function (if revealed)
     if (info.revealDemandFunction) {
-      if (demandType === 'isoelastic') {
-        // Isoelastic demand: P = A * Q^(-1/ε)
-        prompt += `- Demand has constant price elasticity: ε = ${demandElasticity.toFixed(2)}\n`;
-        prompt += `- Market price function: P = ${demandScale.toFixed(2)} × Q^(-1/${demandElasticity.toFixed(2)})\n`;
-        prompt += `- This means demand becomes less elastic as quantity increases\n`;
-        if (gamma < 1) {
-          prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)})\n`;
-        }
-      } else if (demandType === 'ces') {
+      if (demandType === 'ces') {
         // CES demand: P = A * Q^(-1/σ)
         prompt += `- Demand follows CES (Constant Elasticity of Substitution) form\n`;
         prompt += `- Substitution elasticity: σ = ${demandSubstitutionElasticity.toFixed(2)}\n`;

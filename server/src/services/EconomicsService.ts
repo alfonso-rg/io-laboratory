@@ -27,10 +27,10 @@ export class EconomicsService {
 
   /**
    * Calculate market price with any demand function type using realized parameters.
-   * Supports linear, isoelastic, CES, logit, and exponential demand.
+   * Supports linear, CES, CES, logit, and exponential demand.
    *
    * Linear: P = a - b*Q
-   * Isoelastic: P = A * Q^(-1/ε)
+   * CES: P = A * Q^(-1/σ)
    * CES: P = A * Q^(-1/σ)
    * Logit: P = a - b * ln(Q)
    * Exponential: P = A * e^(-bQ)
@@ -43,15 +43,6 @@ export class EconomicsService {
       const a = demand.intercept ?? 100;
       const b = demand.slope ?? 1;
       return Math.max(0, a - b * totalQuantity);
-    } else if (demand.type === 'isoelastic') {
-      const A = demand.scale ?? 100;
-      const epsilon = demand.elasticity ?? 2;
-      // P = A * Q^(-1/ε)
-      // When Q = 0, price is undefined (infinity), so return a large value
-      if (totalQuantity <= 0) {
-        return A * 1000; // Large price for zero quantity
-      }
-      return A * Math.pow(totalQuantity, -1 / epsilon);
     } else if (demand.type === 'ces') {
       const A = demand.scale ?? 100;
       const sigma = demand.substitutionElasticity ?? 2;
@@ -80,7 +71,6 @@ export class EconomicsService {
   /**
    * Calculate differentiated market price for firm i using realized parameters.
    * For linear demand: p_i = a - b*(q_i + γ*Σq_j)
-   * For isoelastic demand: p_i = A * (q_i + γ*Σq_j)^(-1/ε)
    * For CES demand: p_i = A * (q_i + γ*Σq_j)^(-1/σ)
    * For logit demand: p_i = a - b * ln(q_i + γ*Σq_j)
    * For exponential demand: p_i = A * e^(-b*(q_i + γ*Σq_j))
@@ -107,13 +97,6 @@ export class EconomicsService {
       const a = demand.intercept ?? 100;
       const b = demand.slope ?? 1;
       return Math.max(0, a - b * effectiveQ);
-    } else if (demand.type === 'isoelastic') {
-      const A = demand.scale ?? 100;
-      const epsilon = demand.elasticity ?? 2;
-      if (effectiveQ <= 0) {
-        return A * 1000;
-      }
-      return A * Math.pow(effectiveQ, -1 / epsilon);
     } else if (demand.type === 'ces') {
       const A = demand.scale ?? 100;
       const sigma = demand.substitutionElasticity ?? 2;
@@ -533,7 +516,7 @@ export class EconomicsService {
    * This forms a linear system: A*q = B
    * where A[i][i] = 2(b + d_i) and A[i][j] = γb for i≠j
    *
-   * Note: This method only works for linear demand. For isoelastic demand,
+   * Note: This method only works for linear demand. For CES demand,
    * returns an equilibrium with calculable=false.
    */
   static calculateNashCournotNFirms(config: CournotConfig): NPolyEquilibrium {
@@ -543,7 +526,7 @@ export class EconomicsService {
     // For non-linear demand, Nash equilibrium is not analytically calculable
     if (demandType !== 'linear') {
       const demandTypeLabels: Record<string, string> = {
-        isoelastic: 'isoelastic',
+        CES: 'CES',
         ces: 'CES',
         logit: 'logit',
         exponential: 'exponential',
@@ -650,7 +633,7 @@ export class EconomicsService {
    *
    * FOC: ∂π_i/∂p_i = q_i + (p_i - MC_i) * ∂q_i/∂p_i = 0
    *
-   * Note: This method only works for linear demand. For isoelastic demand,
+   * Note: This method only works for linear demand. For CES demand,
    * returns an equilibrium with calculable=false.
    */
   static calculateNashBertrandNFirms(config: CournotConfig): NPolyEquilibrium {
@@ -660,7 +643,7 @@ export class EconomicsService {
     // For non-linear demand, Nash equilibrium is not analytically calculable
     if (demandType !== 'linear') {
       const demandTypeLabels: Record<string, string> = {
-        isoelastic: 'isoelastic',
+        CES: 'CES',
         ces: 'CES',
         logit: 'logit',
         exponential: 'exponential',
@@ -912,7 +895,7 @@ export class EconomicsService {
 
   /**
    * Calculate round result for N firms.
-   * Supports both linear and isoelastic demand functions via realized parameters.
+   * Supports both linear and CES demand functions via realized parameters.
    */
   static calculateNPolyRoundResult(
     roundNumber: number,
@@ -991,11 +974,11 @@ export class EconomicsService {
           const b = demand.slope ?? config.demandSlope;
           q_i = Math.max(0, (a - p_i + gamma * (avgOtherPrice - p_i)) / b);
         } else {
-          // Isoelastic: P = A * Q^(-1/ε), so Q = (P/A)^(-ε)
+          // CES: P = A * Q^(-1/σ), so Q = (P/A)^(-σ)
           const A = demand.scale ?? 100;
-          const epsilon = demand.elasticity ?? 2;
-          // Approximate demand for Bertrand with isoelastic demand
-          q_i = Math.max(0, Math.pow(p_i / A, -epsilon));
+          const sigma = demand.substitutionElasticity ?? 2;
+          // Approximate demand for Bertrand with CES demand
+          q_i = Math.max(0, Math.pow(p_i / A, -sigma));
         }
       }
 

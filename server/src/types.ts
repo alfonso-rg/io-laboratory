@@ -19,7 +19,7 @@ export interface ParameterSpec {
 }
 
 // Demand function types
-export type DemandFunctionType = 'linear' | 'isoelastic' | 'ces' | 'logit' | 'exponential';
+export type DemandFunctionType = 'linear' | 'ces' | 'logit' | 'exponential';
 
 // Linear demand config: P = a - b*Q
 export interface LinearDemandConfig {
@@ -28,19 +28,11 @@ export interface LinearDemandConfig {
   slope: ParameterSpec;      // b
 }
 
-// Isoelastic demand config: P = A * Q^(-1/ε)
-export interface IsoelasticDemandConfig {
-  type: 'isoelastic';
-  scale: ParameterSpec;       // A (scale parameter)
-  elasticity: ParameterSpec;  // ε (price elasticity of demand, positive)
-}
-
 // CES demand config: P = A * Q^(-1/σ)
-// Similar to isoelastic but parameterized by substitution elasticity
 export interface CESDemandConfig {
   type: 'ces';
   scale: ParameterSpec;                  // A (scale parameter)
-  substitutionElasticity: ParameterSpec; // σ (elasticity of substitution, > 1)
+  substitutionElasticity: ParameterSpec; // σ (elasticity of substitution)
 }
 
 // Logit demand config: P = a - b * ln(Q)
@@ -58,7 +50,7 @@ export interface ExponentialDemandConfig {
 }
 
 // Union type for demand configurations
-export type DemandConfig = LinearDemandConfig | IsoelasticDemandConfig | CESDemandConfig | LogitDemandConfig | ExponentialDemandConfig;
+export type DemandConfig = LinearDemandConfig | CESDemandConfig | LogitDemandConfig | ExponentialDemandConfig;
 
 // Realized parameter values for a round
 export interface RealizedParameters {
@@ -67,10 +59,8 @@ export interface RealizedParameters {
     // Linear demand values
     intercept?: number;
     slope?: number;
-    // Isoelastic demand values
-    scale?: number;
-    elasticity?: number;
     // CES demand values
+    scale?: number;
     substitutionElasticity?: number;
     // Logit demand values
     priceCoefficient?: number;
@@ -290,7 +280,7 @@ export interface NPolyEquilibrium {
   marketPrices: number[];  // May differ by firm in differentiated Bertrand
   avgMarketPrice: number;
   totalProfit: number;
-  // For isoelastic demand, Nash equilibrium is not analytically calculable
+  // For non-linear demand, Nash equilibrium is not analytically calculable
   calculable?: boolean;
   message?: string;
 }

@@ -890,22 +890,6 @@ export function AdminPanel() {
                         </div>
                       </>
                     )}
-                    {selectedGame.config.demandFunction?.type === 'isoelastic' && (
-                      <>
-                        <div className="bg-gray-50 p-3 rounded">
-                          <div className="text-gray-600">Scale (A)</div>
-                          <div className="font-medium">
-                            {formatSpec(selectedGame.config.demandFunction.scale)}
-                          </div>
-                        </div>
-                        <div className="bg-gray-50 p-3 rounded">
-                          <div className="text-gray-600">Elasticity (ε)</div>
-                          <div className="font-medium">
-                            {formatSpec(selectedGame.config.demandFunction.elasticity)}
-                          </div>
-                        </div>
-                      </>
-                    )}
                     {selectedGame.config.demandFunction?.type === 'ces' && (
                       <>
                         <div className="bg-gray-50 p-3 rounded">
@@ -1121,18 +1105,6 @@ export function AdminPanel() {
                                               <div>
                                                 <span className="text-gray-600">b: </span>
                                                 <span className="font-medium">{round.realizedParameters.demand.slope?.toFixed(4)}</span>
-                                              </div>
-                                            </>
-                                          )}
-                                          {round.realizedParameters.demand.type === 'isoelastic' && (
-                                            <>
-                                              <div>
-                                                <span className="text-gray-600">A: </span>
-                                                <span className="font-medium">{round.realizedParameters.demand.scale?.toFixed(2)}</span>
-                                              </div>
-                                              <div>
-                                                <span className="text-gray-600">ε: </span>
-                                                <span className="font-medium">{round.realizedParameters.demand.elasticity?.toFixed(2)}</span>
                                               </div>
                                             </>
                                           )}

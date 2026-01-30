@@ -16,14 +16,12 @@ const ParameterSpecSchema = new Schema({
 // Realized parameters schema (actual values used in a round)
 const RealizedParametersSchema = new Schema({
   demand: {
-    type: { type: String, enum: ['linear', 'isoelastic', 'ces', 'logit', 'exponential'] },
+    type: { type: String, enum: ['linear', 'ces', 'logit', 'exponential'] },
     // Linear demand values
     intercept: { type: Number },
     slope: { type: Number },
-    // Isoelastic demand values
-    scale: { type: Number },
-    elasticity: { type: Number },
     // CES demand values
+    scale: { type: Number },
     substitutionElasticity: { type: Number },
     // Logit demand values
     priceCoefficient: { type: Number },
@@ -43,13 +41,6 @@ const LinearDemandConfigSchema = new Schema({
   type: { type: String, enum: ['linear'], required: true },
   intercept: { type: ParameterSpecSchema, required: true },
   slope: { type: ParameterSpecSchema, required: true },
-}, { _id: false });
-
-// Isoelastic demand config schema
-const IsoelasticDemandConfigSchema = new Schema({
-  type: { type: String, enum: ['isoelastic'], required: true },
-  scale: { type: ParameterSpecSchema, required: true },
-  elasticity: { type: ParameterSpecSchema, required: true },
 }, { _id: false });
 
 // Firm cost spec schema
@@ -186,7 +177,7 @@ const CournotConfigSchema = new Schema({
   maxPrice: { type: Number },
 
   // Random parameters and alternative demand functions
-  demandFunction: { type: Schema.Types.Mixed },  // LinearDemandConfig | IsoelasticDemandConfig
+  demandFunction: { type: Schema.Types.Mixed },  // LinearDemandConfig | CESDemandConfig | etc.
   gammaSpec: { type: ParameterSpecSchema },
   firmCostSpecs: { type: [FirmCostSpecSchema], default: [] },
   parameterVariation: { type: String, enum: ['fixed', 'per-replication', 'per-round'] },
