@@ -27,10 +27,13 @@ export class EconomicsService {
 
   /**
    * Calculate market price with any demand function type using realized parameters.
-   * Supports both linear and isoelastic demand.
+   * Supports linear, isoelastic, CES, logit, and exponential demand.
    *
    * Linear: P = a - b*Q
    * Isoelastic: P = A * Q^(-1/ε)
+   * CES: P = A * Q^(-1/σ)
+   * Logit: P = a - b * ln(Q)
+   * Exponential: P = A * e^(-bQ)
    */
   static calculatePriceWithDemand(
     totalQuantity: number,
@@ -49,6 +52,27 @@ export class EconomicsService {
         return A * 1000; // Large price for zero quantity
       }
       return A * Math.pow(totalQuantity, -1 / epsilon);
+    } else if (demand.type === 'ces') {
+      const A = demand.scale ?? 100;
+      const sigma = demand.substitutionElasticity ?? 2;
+      // P = A * Q^(-1/σ)
+      if (totalQuantity <= 0) {
+        return A * 1000;
+      }
+      return A * Math.pow(totalQuantity, -1 / sigma);
+    } else if (demand.type === 'logit') {
+      const a = demand.intercept ?? 100;
+      const b = demand.priceCoefficient ?? 10;
+      // P = a - b * ln(Q)
+      if (totalQuantity <= 0) {
+        return a * 10; // Large price for zero quantity
+      }
+      return Math.max(0, a - b * Math.log(totalQuantity));
+    } else if (demand.type === 'exponential') {
+      const A = demand.scale ?? 100;
+      const b = demand.decayRate ?? 0.01;
+      // P = A * e^(-bQ)
+      return A * Math.exp(-b * totalQuantity);
     }
     return 0;
   }
@@ -57,6 +81,9 @@ export class EconomicsService {
    * Calculate differentiated market price for firm i using realized parameters.
    * For linear demand: p_i = a - b*(q_i + γ*Σq_j)
    * For isoelastic demand: p_i = A * (q_i + γ*Σq_j)^(-1/ε)
+   * For CES demand: p_i = A * (q_i + γ*Σq_j)^(-1/σ)
+   * For logit demand: p_i = a - b * ln(q_i + γ*Σq_j)
+   * For exponential demand: p_i = A * e^(-b*(q_i + γ*Σq_j))
    */
   static calculateDifferentiatedPriceWithDemand(
     firmIndex: number,
@@ -87,6 +114,24 @@ export class EconomicsService {
         return A * 1000;
       }
       return A * Math.pow(effectiveQ, -1 / epsilon);
+    } else if (demand.type === 'ces') {
+      const A = demand.scale ?? 100;
+      const sigma = demand.substitutionElasticity ?? 2;
+      if (effectiveQ <= 0) {
+        return A * 1000;
+      }
+      return A * Math.pow(effectiveQ, -1 / sigma);
+    } else if (demand.type === 'logit') {
+      const a = demand.intercept ?? 100;
+      const b = demand.priceCoefficient ?? 10;
+      if (effectiveQ <= 0) {
+        return a * 10;
+      }
+      return Math.max(0, a - b * Math.log(effectiveQ));
+    } else if (demand.type === 'exponential') {
+      const A = demand.scale ?? 100;
+      const b = demand.decayRate ?? 0.01;
+      return A * Math.exp(-b * effectiveQ);
     }
     return 0;
   }
@@ -495,8 +540,14 @@ export class EconomicsService {
     const demandType = getDemandFunctionType(config);
     const numFirms = getNumFirms(config);
 
-    // For isoelastic demand, Nash equilibrium is not analytically calculable
-    if (demandType === 'isoelastic') {
+    // For non-linear demand, Nash equilibrium is not analytically calculable
+    if (demandType !== 'linear') {
+      const demandTypeLabels: Record<string, string> = {
+        isoelastic: 'isoelastic',
+        ces: 'CES',
+        logit: 'logit',
+        exponential: 'exponential',
+      };
       return {
         competitionMode: 'cournot',
         firms: Array.from({ length: numFirms }, (_, i) => ({
@@ -509,7 +560,7 @@ export class EconomicsService {
         avgMarketPrice: NaN,
         totalProfit: NaN,
         calculable: false,
-        message: 'Nash equilibrium not analytically calculable for isoelastic demand',
+        message: `Nash equilibrium not analytically calculable for ${demandTypeLabels[demandType] || demandType} demand`,
       };
     }
 
@@ -606,8 +657,14 @@ export class EconomicsService {
     const demandType = getDemandFunctionType(config);
     const numFirms = getNumFirms(config);
 
-    // For isoelastic demand, Nash equilibrium is not analytically calculable
-    if (demandType === 'isoelastic') {
+    // For non-linear demand, Nash equilibrium is not analytically calculable
+    if (demandType !== 'linear') {
+      const demandTypeLabels: Record<string, string> = {
+        isoelastic: 'isoelastic',
+        ces: 'CES',
+        logit: 'logit',
+        exponential: 'exponential',
+      };
       return {
         competitionMode: 'bertrand',
         firms: Array.from({ length: numFirms }, (_, i) => ({
@@ -621,7 +678,7 @@ export class EconomicsService {
         avgMarketPrice: NaN,
         totalProfit: NaN,
         calculable: false,
-        message: 'Nash equilibrium not analytically calculable for isoelastic demand',
+        message: `Nash equilibrium not analytically calculable for ${demandTypeLabels[demandType] || demandType} demand`,
       };
     }
 

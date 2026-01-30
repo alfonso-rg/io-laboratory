@@ -19,7 +19,7 @@ export interface ParameterSpec {
 }
 
 // Demand function types
-export type DemandFunctionType = 'linear' | 'isoelastic';
+export type DemandFunctionType = 'linear' | 'isoelastic' | 'ces' | 'logit' | 'exponential';
 
 // Linear demand config: P = a - b*Q
 export interface LinearDemandConfig {
@@ -35,8 +35,29 @@ export interface IsoelasticDemandConfig {
   elasticity: ParameterSpec;  // ε (price elasticity of demand, positive)
 }
 
+// CES demand config: P = A * Q^(-1/σ)
+export interface CESDemandConfig {
+  type: 'ces';
+  scale: ParameterSpec;                  // A (scale parameter)
+  substitutionElasticity: ParameterSpec; // σ (elasticity of substitution, > 1)
+}
+
+// Logit demand config: P = a - b * ln(Q)
+export interface LogitDemandConfig {
+  type: 'logit';
+  intercept: ParameterSpec;        // a
+  priceCoefficient: ParameterSpec; // b
+}
+
+// Exponential demand config: P = A * e^(-bQ)
+export interface ExponentialDemandConfig {
+  type: 'exponential';
+  scale: ParameterSpec;     // A
+  decayRate: ParameterSpec; // b
+}
+
 // Union type for demand configurations
-export type DemandConfig = LinearDemandConfig | IsoelasticDemandConfig;
+export type DemandConfig = LinearDemandConfig | IsoelasticDemandConfig | CESDemandConfig | LogitDemandConfig | ExponentialDemandConfig;
 
 // Realized parameter values for a round
 export interface RealizedParameters {
@@ -48,6 +69,12 @@ export interface RealizedParameters {
     // Isoelastic demand values
     scale?: number;
     elasticity?: number;
+    // CES demand values
+    substitutionElasticity?: number;
+    // Logit demand values
+    priceCoefficient?: number;
+    // Exponential demand values
+    decayRate?: number;
   };
   gamma?: number;
   firmCosts: {
@@ -292,6 +319,7 @@ export interface ServerToClientEvents {
 // Available LLM models with pricing (per 1M tokens)
 // GPT-5.2 models support configurable reasoning effort levels: none, low, medium, high, xhigh
 // GPT-5-nano and GPT-5-mini have FIXED built-in reasoning that cannot be disabled
+// Gemini models have free tiers with rate limits
 export const AVAILABLE_MODELS = [
   // GPT-4 series - No reasoning, fastest responses
   { value: 'gpt-4o-mini', label: 'GPT-4o Mini', inputPrice: 0.15, outputPrice: 0.60, description: 'Fast, no reasoning' },
@@ -306,6 +334,11 @@ export const AVAILABLE_MODELS = [
   // GPT-5 legacy - FIXED reasoning (cannot be disabled)
   { value: 'gpt-5-nano', label: 'GPT-5 Nano (Fixed avg reasoning)', inputPrice: 0.05, outputPrice: 0.40, description: 'Cheap but slower than expected' },
   { value: 'gpt-5-mini', label: 'GPT-5 Mini (Fixed high reasoning)', inputPrice: 0.25, outputPrice: 2.00, description: 'Built-in high reasoning' },
+  // Google Gemini models - Free tier with rate limits
+  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', inputPrice: 0, outputPrice: 0, description: 'Free tier, 10 RPM' },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', inputPrice: 0, outputPrice: 0, description: 'Free tier, 5 RPM' },
+  { value: 'gemini-3-flash', label: 'Gemini 3 Flash', inputPrice: 0, outputPrice: 0, description: 'Free tier, 5 RPM' },
+  { value: 'gemini-3.5-pro', label: 'Gemini 3.5 Pro', inputPrice: 1.25, outputPrice: 5.00, description: 'Premium (future)' },
 ];
 
 // Competition modes

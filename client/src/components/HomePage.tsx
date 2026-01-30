@@ -34,23 +34,56 @@ export function HomePage() {
 
   // Handle demand function type change
   const handleDemandTypeChange = (newType: DemandFunctionType) => {
-    if (newType === 'linear') {
-      setConfig({
-        demandFunction: {
-          type: 'linear',
-          intercept: fixedParam(config.demandIntercept),
-          slope: fixedParam(config.demandSlope),
-        },
-      });
-    } else {
-      // isoelastic: P = A * Q^(-1/ε), default A=100, ε=2
-      setConfig({
-        demandFunction: {
-          type: 'isoelastic',
-          scale: fixedParam(100),
-          elasticity: fixedParam(2),
-        },
-      });
+    switch (newType) {
+      case 'linear':
+        setConfig({
+          demandFunction: {
+            type: 'linear',
+            intercept: fixedParam(config.demandIntercept),
+            slope: fixedParam(config.demandSlope),
+          },
+        });
+        break;
+      case 'isoelastic':
+        // P = A * Q^(-1/ε), default A=100, ε=2
+        setConfig({
+          demandFunction: {
+            type: 'isoelastic',
+            scale: fixedParam(100),
+            elasticity: fixedParam(2),
+          },
+        });
+        break;
+      case 'ces':
+        // P = A * Q^(-1/σ), default A=100, σ=2
+        setConfig({
+          demandFunction: {
+            type: 'ces',
+            scale: fixedParam(100),
+            substitutionElasticity: fixedParam(2),
+          },
+        });
+        break;
+      case 'logit':
+        // P = a - b * ln(Q), default a=100, b=10
+        setConfig({
+          demandFunction: {
+            type: 'logit',
+            intercept: fixedParam(100),
+            priceCoefficient: fixedParam(10),
+          },
+        });
+        break;
+      case 'exponential':
+        // P = A * e^(-bQ), default A=100, b=0.01
+        setConfig({
+          demandFunction: {
+            type: 'exponential',
+            scale: fixedParam(100),
+            decayRate: fixedParam(0.01),
+          },
+        });
+        break;
     }
   };
 
@@ -61,6 +94,30 @@ export function HomePage() {
   const isoelasticElasticity = config.demandFunction?.type === 'isoelastic'
     ? (config.demandFunction.elasticity.value ?? 2)
     : 2;
+
+  // Get CES parameters from config
+  const cesScale = config.demandFunction?.type === 'ces'
+    ? (config.demandFunction.scale.value ?? 100)
+    : 100;
+  const cesSubstitutionElasticity = config.demandFunction?.type === 'ces'
+    ? (config.demandFunction.substitutionElasticity.value ?? 2)
+    : 2;
+
+  // Get Logit parameters from config
+  const logitIntercept = config.demandFunction?.type === 'logit'
+    ? (config.demandFunction.intercept.value ?? 100)
+    : 100;
+  const logitPriceCoefficient = config.demandFunction?.type === 'logit'
+    ? (config.demandFunction.priceCoefficient.value ?? 10)
+    : 10;
+
+  // Get Exponential parameters from config
+  const exponentialScale = config.demandFunction?.type === 'exponential'
+    ? (config.demandFunction.scale.value ?? 100)
+    : 100;
+  const exponentialDecayRate = config.demandFunction?.type === 'exponential'
+    ? (config.demandFunction.decayRate.value ?? 0.01)
+    : 0.01;
 
   // Legacy equilibrium (for duopoly backward compatibility)
   const cooperativeEquilibrium = useMemo(() => calculateCooperativeEquilibrium(config), [config]);
@@ -305,8 +362,8 @@ export function HomePage() {
           {/* Demand Type Selector */}
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2">Function Type</label>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
+            <div className="flex flex-wrap gap-3">
+              <label className="flex items-center gap-1.5 cursor-pointer">
                 <input
                   type="radio"
                   name="demandType"
@@ -318,7 +375,7 @@ export function HomePage() {
                 />
                 <span className="text-sm">Linear</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex items-center gap-1.5 cursor-pointer">
                 <input
                   type="radio"
                   name="demandType"
@@ -330,20 +387,59 @@ export function HomePage() {
                 />
                 <span className="text-sm">Isoelastic</span>
               </label>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="demandType"
+                  value="ces"
+                  checked={demandFunctionType === 'ces'}
+                  onChange={() => handleDemandTypeChange('ces')}
+                  disabled={isRunning}
+                  className="text-blue-600"
+                />
+                <span className="text-sm">CES</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="demandType"
+                  value="logit"
+                  checked={demandFunctionType === 'logit'}
+                  onChange={() => handleDemandTypeChange('logit')}
+                  disabled={isRunning}
+                  className="text-blue-600"
+                />
+                <span className="text-sm">Logit</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="demandType"
+                  value="exponential"
+                  checked={demandFunctionType === 'exponential'}
+                  onChange={() => handleDemandTypeChange('exponential')}
+                  disabled={isRunning}
+                  className="text-blue-600"
+                />
+                <span className="text-sm">Exponential</span>
+              </label>
             </div>
           </div>
 
           {/* Formula Display */}
           <p className="text-sm text-gray-600 mb-4 font-mono bg-gray-50 p-2 rounded">
-            {demandFunctionType === 'linear'
-              ? (gamma < 1
-                  ? `p_i = a - b×(q_i + ${gamma.toFixed(2)}×Σq_j)`
-                  : 'P(Q) = a - b × Q')
-              : `P(Q) = A × Q^(-1/ε)`}
+            {demandFunctionType === 'linear' && (gamma < 1
+              ? `p_i = a - b×(q_i + ${gamma.toFixed(2)}×Σq_j)`
+              : 'P(Q) = a - b × Q')}
+            {demandFunctionType === 'isoelastic' && 'P(Q) = A × Q^(-1/ε)'}
+            {demandFunctionType === 'ces' && 'P(Q) = A × Q^(-1/σ)'}
+            {demandFunctionType === 'logit' && 'P(Q) = a - b × ln(Q)'}
+            {demandFunctionType === 'exponential' && 'P(Q) = A × e^(-bQ)'}
           </p>
 
           <div className="space-y-4">
-            {demandFunctionType === 'linear' ? (
+            {/* Linear Demand Inputs */}
+            {demandFunctionType === 'linear' && (
               <>
                 <div>
                   <label className="block text-sm font-medium mb-1">
@@ -367,7 +463,6 @@ export function HomePage() {
                     disabled={isRunning}
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium mb-1">
                     Demand Slope (b)
@@ -392,7 +487,10 @@ export function HomePage() {
                   />
                 </div>
               </>
-            ) : (
+            )}
+
+            {/* Isoelastic Demand Inputs */}
+            {demandFunctionType === 'isoelastic' && (
               <>
                 <div>
                   <label className="block text-sm font-medium mb-1">
@@ -416,7 +514,6 @@ export function HomePage() {
                   />
                   <p className="text-xs text-gray-500 mt-1">Scales the price level</p>
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium mb-1">
                     Price Elasticity (ε)
@@ -441,6 +538,168 @@ export function HomePage() {
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     ε &gt; 1: elastic demand, ε &lt; 1: inelastic demand
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* CES Demand Inputs */}
+            {demandFunctionType === 'ces' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Scale Parameter (A)
+                  </label>
+                  <input
+                    type="number"
+                    value={cesScale}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 100;
+                      setConfig({
+                        demandFunction: {
+                          type: 'ces',
+                          scale: fixedParam(val),
+                          substitutionElasticity: fixedParam(cesSubstitutionElasticity),
+                        },
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    disabled={isRunning}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Scales the price level</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Substitution Elasticity (σ)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={cesSubstitutionElasticity}
+                    onChange={(e) => {
+                      const val = Math.max(0.1, parseFloat(e.target.value) || 2);
+                      setConfig({
+                        demandFunction: {
+                          type: 'ces',
+                          scale: fixedParam(cesScale),
+                          substitutionElasticity: fixedParam(val),
+                        },
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    disabled={isRunning}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    σ &gt; 1: substitutes, σ &lt; 1: complements
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* Logit Demand Inputs */}
+            {demandFunctionType === 'logit' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Intercept (a)
+                  </label>
+                  <input
+                    type="number"
+                    value={logitIntercept}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 100;
+                      setConfig({
+                        demandFunction: {
+                          type: 'logit',
+                          intercept: fixedParam(val),
+                          priceCoefficient: fixedParam(logitPriceCoefficient),
+                        },
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    disabled={isRunning}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Base price level at Q=1</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Price Coefficient (b)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={logitPriceCoefficient}
+                    onChange={(e) => {
+                      const val = Math.max(0.1, parseFloat(e.target.value) || 10);
+                      setConfig({
+                        demandFunction: {
+                          type: 'logit',
+                          intercept: fixedParam(logitIntercept),
+                          priceCoefficient: fixedParam(val),
+                        },
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    disabled={isRunning}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    How fast price drops as ln(Q) increases
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* Exponential Demand Inputs */}
+            {demandFunctionType === 'exponential' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Scale Parameter (A)
+                  </label>
+                  <input
+                    type="number"
+                    value={exponentialScale}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 100;
+                      setConfig({
+                        demandFunction: {
+                          type: 'exponential',
+                          scale: fixedParam(val),
+                          decayRate: fixedParam(exponentialDecayRate),
+                        },
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    disabled={isRunning}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Maximum price (at Q=0)</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Decay Rate (b)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0.001"
+                    value={exponentialDecayRate}
+                    onChange={(e) => {
+                      const val = Math.max(0.001, parseFloat(e.target.value) || 0.01);
+                      setConfig({
+                        demandFunction: {
+                          type: 'exponential',
+                          scale: fixedParam(exponentialScale),
+                          decayRate: fixedParam(val),
+                        },
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    disabled={isRunning}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    How fast price decays with quantity
                   </p>
                 </div>
               </>

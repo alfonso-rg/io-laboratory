@@ -19,7 +19,7 @@ export interface ParameterSpec {
 }
 
 // Demand function types
-export type DemandFunctionType = 'linear' | 'isoelastic';
+export type DemandFunctionType = 'linear' | 'isoelastic' | 'ces' | 'logit' | 'exponential';
 
 // Linear demand config: P = a - b*Q
 export interface LinearDemandConfig {
@@ -35,8 +35,30 @@ export interface IsoelasticDemandConfig {
   elasticity: ParameterSpec;  // ε (price elasticity of demand, positive)
 }
 
+// CES demand config: P = A * Q^(-1/σ)
+// Similar to isoelastic but parameterized by substitution elasticity
+export interface CESDemandConfig {
+  type: 'ces';
+  scale: ParameterSpec;                  // A (scale parameter)
+  substitutionElasticity: ParameterSpec; // σ (elasticity of substitution, > 1)
+}
+
+// Logit demand config: P = a - b * ln(Q)
+export interface LogitDemandConfig {
+  type: 'logit';
+  intercept: ParameterSpec;        // a
+  priceCoefficient: ParameterSpec; // b
+}
+
+// Exponential demand config: P = A * e^(-bQ)
+export interface ExponentialDemandConfig {
+  type: 'exponential';
+  scale: ParameterSpec;     // A
+  decayRate: ParameterSpec; // b
+}
+
 // Union type for demand configurations
-export type DemandConfig = LinearDemandConfig | IsoelasticDemandConfig;
+export type DemandConfig = LinearDemandConfig | IsoelasticDemandConfig | CESDemandConfig | LogitDemandConfig | ExponentialDemandConfig;
 
 // Realized parameter values for a round
 export interface RealizedParameters {
@@ -48,6 +70,12 @@ export interface RealizedParameters {
     // Isoelastic demand values
     scale?: number;
     elasticity?: number;
+    // CES demand values
+    substitutionElasticity?: number;
+    // Logit demand values
+    priceCoefficient?: number;
+    // Exponential demand values
+    decayRate?: number;
   };
   gamma?: number;
   firmCosts: {

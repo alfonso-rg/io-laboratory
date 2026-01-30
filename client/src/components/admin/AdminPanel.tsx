@@ -212,6 +212,8 @@ export function AdminPanel() {
   const [selectedGame, setSelectedGame] = useState<FullGameResult | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [expandedRounds, setExpandedRounds] = useState<Set<string>>(new Set());
+  const [exportIncludeReasoning, setExportIncludeReasoning] = useState(false);
+  const [exportIncludeChat, setExportIncludeChat] = useState(false);
 
   useEffect(() => {
     fetchGames();
@@ -297,6 +299,27 @@ export function AdminPanel() {
       }
     } catch (err) {
       setError('Failed to delete game');
+    }
+  };
+
+  const exportGame = async (gameId: string, format: 'rounds' | 'summary') => {
+    try {
+      const params = new URLSearchParams({
+        format,
+        reasoning: exportIncludeReasoning.toString(),
+        chat: exportIncludeChat.toString(),
+      });
+      const url = `${API_BASE_URL}/api/admin/games/${gameId}/export?${params}`;
+
+      // Create a temporary link to download the file
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `game_${gameId.slice(0, 8)}_${format}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      setError('Failed to export game');
     }
   };
 
@@ -481,6 +504,47 @@ export function AdminPanel() {
               <div className="p-8 text-center">Loading game details...</div>
             ) : selectedGame && (
               <div className="overflow-y-auto flex-1 p-4">
+                {/* Export Section */}
+                <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
+                  <h3 className="text-lg font-semibold mb-3 text-green-800">Export to CSV</h3>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={exportIncludeReasoning}
+                          onChange={(e) => setExportIncludeReasoning(e.target.checked)}
+                          className="rounded"
+                        />
+                        Include LLM Reasoning
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={exportIncludeChat}
+                          onChange={(e) => setExportIncludeChat(e.target.checked)}
+                          className="rounded"
+                        />
+                        Include Communication
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => exportGame(selectedGame.gameId, 'rounds')}
+                        className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
+                      >
+                        Export Rounds
+                      </button>
+                      <button
+                        onClick={() => exportGame(selectedGame.gameId, 'summary')}
+                        className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 text-sm"
+                      >
+                        Export Summary
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Game Configuration */}
                 <div className="mb-6">
                   <h3 className="text-lg font-semibold mb-3">Configuration</h3>
@@ -544,6 +608,54 @@ export function AdminPanel() {
                           <div className="text-gray-600">Elasticity (ε)</div>
                           <div className="font-medium">
                             {formatSpec(selectedGame.config.demandFunction.elasticity)}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {selectedGame.config.demandFunction?.type === 'ces' && (
+                      <>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-gray-600">Scale (A)</div>
+                          <div className="font-medium">
+                            {formatSpec(selectedGame.config.demandFunction.scale)}
+                          </div>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-gray-600">Substitution Elast. (σ)</div>
+                          <div className="font-medium">
+                            {formatSpec(selectedGame.config.demandFunction.substitutionElasticity)}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {selectedGame.config.demandFunction?.type === 'logit' && (
+                      <>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-gray-600">Intercept (a)</div>
+                          <div className="font-medium">
+                            {formatSpec(selectedGame.config.demandFunction.intercept)}
+                          </div>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-gray-600">Price Coef. (b)</div>
+                          <div className="font-medium">
+                            {formatSpec(selectedGame.config.demandFunction.priceCoefficient)}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {selectedGame.config.demandFunction?.type === 'exponential' && (
+                      <>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-gray-600">Scale (A)</div>
+                          <div className="font-medium">
+                            {formatSpec(selectedGame.config.demandFunction.scale)}
+                          </div>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-gray-600">Decay Rate (b)</div>
+                          <div className="font-medium">
+                            {formatSpec(selectedGame.config.demandFunction.decayRate)}
                           </div>
                         </div>
                       </>
@@ -727,6 +839,42 @@ export function AdminPanel() {
                                               <div>
                                                 <span className="text-gray-600">ε: </span>
                                                 <span className="font-medium">{round.realizedParameters.demand.elasticity?.toFixed(2)}</span>
+                                              </div>
+                                            </>
+                                          )}
+                                          {round.realizedParameters.demand.type === 'ces' && (
+                                            <>
+                                              <div>
+                                                <span className="text-gray-600">A: </span>
+                                                <span className="font-medium">{round.realizedParameters.demand.scale?.toFixed(2)}</span>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-600">σ: </span>
+                                                <span className="font-medium">{round.realizedParameters.demand.substitutionElasticity?.toFixed(2)}</span>
+                                              </div>
+                                            </>
+                                          )}
+                                          {round.realizedParameters.demand.type === 'logit' && (
+                                            <>
+                                              <div>
+                                                <span className="text-gray-600">a: </span>
+                                                <span className="font-medium">{round.realizedParameters.demand.intercept?.toFixed(2)}</span>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-600">b: </span>
+                                                <span className="font-medium">{round.realizedParameters.demand.priceCoefficient?.toFixed(2)}</span>
+                                              </div>
+                                            </>
+                                          )}
+                                          {round.realizedParameters.demand.type === 'exponential' && (
+                                            <>
+                                              <div>
+                                                <span className="text-gray-600">A: </span>
+                                                <span className="font-medium">{round.realizedParameters.demand.scale?.toFixed(2)}</span>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-600">b: </span>
+                                                <span className="font-medium">{round.realizedParameters.demand.decayRate?.toFixed(4)}</span>
                                               </div>
                                             </>
                                           )}

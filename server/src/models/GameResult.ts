@@ -16,11 +16,19 @@ const ParameterSpecSchema = new Schema({
 // Realized parameters schema (actual values used in a round)
 const RealizedParametersSchema = new Schema({
   demand: {
-    type: { type: String, enum: ['linear', 'isoelastic'] },
+    type: { type: String, enum: ['linear', 'isoelastic', 'ces', 'logit', 'exponential'] },
+    // Linear demand values
     intercept: { type: Number },
     slope: { type: Number },
+    // Isoelastic demand values
     scale: { type: Number },
     elasticity: { type: Number },
+    // CES demand values
+    substitutionElasticity: { type: Number },
+    // Logit demand values
+    priceCoefficient: { type: Number },
+    // Exponential demand values
+    decayRate: { type: Number },
   },
   gamma: { type: Number },
   firmCosts: [{

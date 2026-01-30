@@ -92,19 +92,49 @@ export class ParameterService {
     let demand: RealizedParameters['demand'];
 
     if (config.demandFunction) {
-      if (config.demandFunction.type === 'linear') {
-        demand = {
-          type: 'linear',
-          intercept: this.drawParameter(config.demandFunction.intercept),
-          slope: this.drawParameter(config.demandFunction.slope),
-        };
-      } else {
-        // isoelastic
-        demand = {
-          type: 'isoelastic',
-          scale: this.drawParameter(config.demandFunction.scale),
-          elasticity: this.drawParameter(config.demandFunction.elasticity),
-        };
+      switch (config.demandFunction.type) {
+        case 'linear':
+          demand = {
+            type: 'linear',
+            intercept: this.drawParameter(config.demandFunction.intercept),
+            slope: this.drawParameter(config.demandFunction.slope),
+          };
+          break;
+        case 'isoelastic':
+          demand = {
+            type: 'isoelastic',
+            scale: this.drawParameter(config.demandFunction.scale),
+            elasticity: this.drawParameter(config.demandFunction.elasticity),
+          };
+          break;
+        case 'ces':
+          demand = {
+            type: 'ces',
+            scale: this.drawParameter(config.demandFunction.scale),
+            substitutionElasticity: this.drawParameter(config.demandFunction.substitutionElasticity),
+          };
+          break;
+        case 'logit':
+          demand = {
+            type: 'logit',
+            intercept: this.drawParameter(config.demandFunction.intercept),
+            priceCoefficient: this.drawParameter(config.demandFunction.priceCoefficient),
+          };
+          break;
+        case 'exponential':
+          demand = {
+            type: 'exponential',
+            scale: this.drawParameter(config.demandFunction.scale),
+            decayRate: this.drawParameter(config.demandFunction.decayRate),
+          };
+          break;
+        default:
+          // Fallback to linear
+          demand = {
+            type: 'linear',
+            intercept: config.demandIntercept,
+            slope: config.demandSlope,
+          };
       }
     } else {
       // Legacy: use fixed values from demandIntercept and demandSlope
@@ -162,12 +192,27 @@ export class ParameterService {
   static hasRandomParameters(config: CournotConfig): boolean {
     // Check demand function
     if (config.demandFunction) {
-      if (config.demandFunction.type === 'linear') {
-        if (config.demandFunction.intercept.type !== 'fixed') return true;
-        if (config.demandFunction.slope.type !== 'fixed') return true;
-      } else {
-        if (config.demandFunction.scale.type !== 'fixed') return true;
-        if (config.demandFunction.elasticity.type !== 'fixed') return true;
+      switch (config.demandFunction.type) {
+        case 'linear':
+          if (config.demandFunction.intercept.type !== 'fixed') return true;
+          if (config.demandFunction.slope.type !== 'fixed') return true;
+          break;
+        case 'isoelastic':
+          if (config.demandFunction.scale.type !== 'fixed') return true;
+          if (config.demandFunction.elasticity.type !== 'fixed') return true;
+          break;
+        case 'ces':
+          if (config.demandFunction.scale.type !== 'fixed') return true;
+          if (config.demandFunction.substitutionElasticity.type !== 'fixed') return true;
+          break;
+        case 'logit':
+          if (config.demandFunction.intercept.type !== 'fixed') return true;
+          if (config.demandFunction.priceCoefficient.type !== 'fixed') return true;
+          break;
+        case 'exponential':
+          if (config.demandFunction.scale.type !== 'fixed') return true;
+          if (config.demandFunction.decayRate.type !== 'fixed') return true;
+          break;
       }
     }
 

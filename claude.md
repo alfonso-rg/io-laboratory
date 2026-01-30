@@ -28,7 +28,11 @@ Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 
 ### Funciones de Demanda
 - **Lineal**: P = a - b×Q (por defecto)
 - **Isoelástica**: P = A × Q^(-1/ε)
-  - El equilibrio Nash no se calcula analíticamente para demanda isoelástica (se muestra "N/A")
+- **CES**: P = A × Q^(-1/σ) (Constant Elasticity of Substitution)
+- **Logit**: P = a - b × ln(Q)
+- **Exponencial**: P = A × e^(-bQ)
+
+> **Nota**: El equilibrio Nash solo se calcula analíticamente para demanda lineal. Para las demás funciones se muestra "N/A".
 
 ### Parámetros Aleatorios
 - **Distribuciones soportadas**: Fixed, Uniform, Normal, Log-normal
@@ -57,6 +61,14 @@ Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 
 - GPT-5 Mini - $0.25/$2.00 - Razonamiento "High" incorporado (similar a GPT-5.2:high)
 
 > **Nota importante:** GPT-5-nano y GPT-5-mini son modelos GPT-5 "legacy" con razonamiento incorporado que NO se puede desactivar. Aunque son más baratos, pueden ser más lentos que GPT-5.2:none o GPT-4o-mini.
+
+**Google Gemini (Free tier con límites de rate):**
+- Gemini 2.5 Flash Lite - Gratis - 10 RPM
+- Gemini 2.5 Flash - Gratis - 5 RPM
+- Gemini 3 Flash - Gratis - 5 RPM
+- Gemini 3.5 Pro - $1.25/$5.00 por 1M tokens (premium, futuro)
+
+> **Nota**: Los modelos Gemini gratuitos tienen límites estrictos de requests por minuto. El sistema implementa rate limiting automático.
 
 ### Estimación de Costes
 - Estimación automática de tokens y coste antes de ejecutar experimentos
@@ -94,7 +106,40 @@ Donde:
 - ε: Elasticidad precio de la demanda (ε > 1)
 - Q: Cantidad total de mercado
 
-> **Nota**: El equilibrio Nash para demanda isoelástica no tiene solución analítica cerrada, por lo que se muestra "N/A" en la interfaz.
+### Demanda CES (Constant Elasticity of Substitution)
+
+**Precio de mercado:**
+```
+P = A × Q^(-1/σ)
+```
+Donde:
+- A: Parámetro de escala
+- σ: Elasticidad de sustitución (σ > 1 = sustitutos, σ < 1 = complementos)
+- Q: Cantidad total de mercado
+
+### Demanda Logit
+
+**Precio de mercado:**
+```
+P = a - b × ln(Q)
+```
+Donde:
+- a: Intercepto (precio base cuando Q=1)
+- b: Coeficiente de precio (sensibilidad logarítmica)
+- Q: Cantidad total de mercado
+
+### Demanda Exponencial
+
+**Precio de mercado:**
+```
+P = A × e^(-bQ)
+```
+Donde:
+- A: Parámetro de escala (precio máximo en Q=0)
+- b: Tasa de decaimiento
+- Q: Cantidad total de mercado
+
+> **Nota**: El equilibrio Nash solo tiene solución analítica cerrada para demanda lineal. Para isoelástica, CES, logit y exponencial se muestra "N/A" en la interfaz.
 
 ### Costes
 ```
@@ -253,7 +298,7 @@ io-laboratory/
 # Terminal 1 - Server
 cd io-laboratory/server
 npm install
-copy .env.example .env   # Editar: OPENAI_API_KEY, MONGODB_URI
+copy .env.example .env   # Editar: OPENAI_API_KEY, GOOGLE_API_KEY (opcional), MONGODB_URI
 npm run dev              # Puerto 3001
 
 # Terminal 2 - Client
@@ -271,6 +316,7 @@ Abrir http://localhost:5173
 PORT=3001
 MONGODB_URI=mongodb+srv://...
 OPENAI_API_KEY=sk-...
+GOOGLE_API_KEY=...           # Opcional, para modelos Gemini
 CLIENT_URL=http://localhost:5173
 NODE_ENV=development
 ```
@@ -306,6 +352,11 @@ VITE_SOCKET_URL=http://localhost:3001
 - `GET /api/health` - Health check
 - `GET /api/admin/games` - Lista juegos (paginado)
 - `GET /api/admin/games/:gameId` - Detalle completo de juego (incluye prompts)
+- `GET /api/admin/games/:gameId/export` - Exportar juego a CSV
+  - Query params:
+    - `format`: `rounds` (por ronda) | `summary` (por réplica)
+    - `reasoning`: `true` | `false` - Incluir razonamientos de LLMs
+    - `chat`: `true` | `false` - Incluir mensajes de comunicación
 - `DELETE /api/admin/games/:gameId` - Eliminar juego
 - `GET /api/admin/stats` - Estadísticas agregadas
 
@@ -344,7 +395,7 @@ interface ParameterSpec {
 }
 
 // Tipos de función de demanda
-type DemandFunctionType = 'linear' | 'isoelastic';
+type DemandFunctionType = 'linear' | 'isoelastic' | 'ces' | 'logit' | 'exponential';
 
 // Configuración de demanda lineal
 interface LinearDemandConfig {
@@ -360,16 +411,40 @@ interface IsoelasticDemandConfig {
   elasticity: ParameterSpec;  // ε
 }
 
-type DemandConfig = LinearDemandConfig | IsoelasticDemandConfig;
+// Configuración de demanda CES
+interface CESDemandConfig {
+  type: 'ces';
+  scale: ParameterSpec;                  // A
+  substitutionElasticity: ParameterSpec; // σ
+}
+
+// Configuración de demanda Logit
+interface LogitDemandConfig {
+  type: 'logit';
+  intercept: ParameterSpec;        // a
+  priceCoefficient: ParameterSpec; // b
+}
+
+// Configuración de demanda Exponencial
+interface ExponentialDemandConfig {
+  type: 'exponential';
+  scale: ParameterSpec;     // A
+  decayRate: ParameterSpec; // b
+}
+
+type DemandConfig = LinearDemandConfig | IsoelasticDemandConfig | CESDemandConfig | LogitDemandConfig | ExponentialDemandConfig;
 
 // Valores realizados para una ronda
 interface RealizedParameters {
   demand: {
     type: DemandFunctionType;
-    intercept?: number;   // Lineal
-    slope?: number;       // Lineal
-    scale?: number;       // Isoelástica
-    elasticity?: number;  // Isoelástica
+    intercept?: number;            // Lineal, Logit
+    slope?: number;                // Lineal
+    scale?: number;                // Isoelástica, CES, Exponencial
+    elasticity?: number;           // Isoelástica
+    substitutionElasticity?: number; // CES
+    priceCoefficient?: number;     // Logit
+    decayRate?: number;            // Exponencial
   };
   gamma?: number;
   firmCosts: {
@@ -482,6 +557,14 @@ Al hacer push a main, ambos servicios se despliegan automáticamente.
 - **Chat Completions API**: Usada solo por GPT-4o y GPT-4o-mini
   - Usa `max_tokens` y soporta `temperature: 0.7`
 
+### Integración Google Gemini
+- Usa `@google/generative-ai` SDK
+- Requiere `GOOGLE_API_KEY` en variables de entorno (opcional)
+- **Rate limiting automático**:
+  - Gemini 2.5 Flash Lite: 10 RPM
+  - Otros modelos: 5 RPM
+- El sistema espera automáticamente entre llamadas para no exceder límites
+
 ### Arquitectura
 - MongoDB es opcional (el servidor funciona sin él, solo no persiste)
 - El servidor verifica conexión MongoDB antes de queries (`mongoose.connection.readyState`)
@@ -510,13 +593,15 @@ Al hacer push a main, ambos servicios se despliegan automáticamente.
 
 ## Próximas Mejoras Posibles
 
-- [ ] Exportar resultados a CSV/Excel
 - [ ] Gráficos comparativos entre réplicas
-- [ ] Más modelos LLM (Anthropic, Google)
+- [ ] Más modelos LLM (Anthropic)
 - [ ] Modo Stackelberg (líder-seguidor)
+- [ ] Tests automatizados
 - [x] ~~Competencia en precios (Bertrand)~~ ✓ Implementado
 - [x] ~~N-polio (más de 2 firmas)~~ ✓ Implementado
 - [x] ~~Diferenciación de productos~~ ✓ Implementado
 - [x] ~~Parámetros aleatorios~~ ✓ Implementado (Uniform, Normal, Log-normal)
 - [x] ~~Demanda isoelástica~~ ✓ Implementado
-- [ ] Tests automatizados
+- [x] ~~Exportar resultados a CSV~~ ✓ Implementado (con razonamientos y comunicación)
+- [x] ~~Google Gemini~~ ✓ Implementado (modelos gratuitos con rate limiting)
+- [x] ~~Más funciones de demanda~~ ✓ Implementado (CES, Logit, Exponencial)

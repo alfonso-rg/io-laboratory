@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
   CournotConfig,
   RoundResult,
@@ -15,6 +16,17 @@ import { logger } from '../config/logger';
 // Type for GPT-5.2 reasoning effort levels
 type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
+// Gemini model rate limits (requests per minute)
+const GEMINI_RATE_LIMITS: Record<string, number> = {
+  'gemini-2.5-flash-lite': 10,
+  'gemini-2.5-flash': 5,
+  'gemini-3-flash': 5,
+  'gemini-3.5-pro': 5,
+};
+
+// Last call timestamps for rate limiting
+const geminiLastCallTime: Map<string, number> = new Map();
+
 // Check if model is a GPT-5 family model that uses Responses API
 // All GPT-5 models (including nano and mini) use Responses API for best compatibility
 function isGPT5ResponsesModel(model: string): boolean {
@@ -22,36 +34,95 @@ function isGPT5ResponsesModel(model: string): boolean {
   return model.startsWith('gpt-5');
 }
 
+// Check if model is a Gemini model
+function isGeminiModel(model: string): boolean {
+  return model.startsWith('gemini-');
+}
+
 // Parse model string to extract base model and reasoning level
 // Format: "gpt-5.2:medium" -> { model: "gpt-5.2", reasoning: "medium" }
 // All GPT-5 models use Responses API
-function parseModelString(modelString: string): { model: string; reasoning?: ReasoningEffort; useResponsesAPI: boolean } {
+function parseModelString(modelString: string): { model: string; reasoning?: ReasoningEffort; useResponsesAPI: boolean; isGemini: boolean } {
+  // Check for Gemini models first
+  if (isGeminiModel(modelString)) {
+    return { model: modelString, useResponsesAPI: false, isGemini: true };
+  }
+
   const parts = modelString.split(':');
 
   // Check for GPT-5.2 with explicit reasoning level
   if (parts.length === 2 && parts[0].startsWith('gpt-5.2')) {
     const reasoningLevel = parts[1] as ReasoningEffort;
     if (['none', 'low', 'medium', 'high', 'xhigh'].includes(reasoningLevel)) {
-      return { model: parts[0], reasoning: reasoningLevel, useResponsesAPI: true };
+      return { model: parts[0], reasoning: reasoningLevel, useResponsesAPI: true, isGemini: false };
     }
   }
 
   // All GPT-5 family models use Responses API (including nano, mini, 5.2, etc.)
   if (isGPT5ResponsesModel(modelString)) {
-    return { model: modelString, useResponsesAPI: true };
+    return { model: modelString, useResponsesAPI: true, isGemini: false };
   }
 
   // GPT-4o models use Chat Completions API
-  return { model: modelString, useResponsesAPI: false };
+  return { model: modelString, useResponsesAPI: false, isGemini: false };
 }
 
 export class LLMService {
   private openai: OpenAI;
+  private gemini: GoogleGenerativeAI | null;
 
   constructor() {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
+
+    // Initialize Gemini if API key is available
+    if (process.env.GOOGLE_API_KEY) {
+      this.gemini = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+    } else {
+      this.gemini = null;
+      logger.warn('GOOGLE_API_KEY not set - Gemini models will not be available');
+    }
+  }
+
+  /**
+   * Wait for rate limit if needed for Gemini models
+   */
+  private async waitForGeminiRateLimit(model: string): Promise<void> {
+    const rateLimit = GEMINI_RATE_LIMITS[model] || 5;
+    const minIntervalMs = (60 / rateLimit) * 1000; // ms between calls
+    const lastCall = geminiLastCallTime.get(model) || 0;
+    const timeSinceLast = Date.now() - lastCall;
+
+    if (timeSinceLast < minIntervalMs) {
+      const waitTime = minIntervalMs - timeSinceLast;
+      logger.info(`Rate limiting Gemini ${model}: waiting ${Math.round(waitTime)}ms`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
+    geminiLastCallTime.set(model, Date.now());
+  }
+
+  /**
+   * Call Gemini API
+   */
+  private async callGemini(model: string, prompt: string): Promise<string> {
+    if (!this.gemini) {
+      throw new Error('Gemini API not initialized - GOOGLE_API_KEY not set');
+    }
+
+    await this.waitForGeminiRateLimit(model);
+
+    const genModel = this.gemini.getGenerativeModel({ model });
+    const result = await genModel.generateContent(prompt);
+    const response = result.response;
+    const text = response.text();
+
+    if (!text) {
+      throw new Error('Empty response from Gemini');
+    }
+
+    return text;
   }
 
   /**
@@ -88,6 +159,9 @@ export class LLMService {
     const demandSlope = realizedParams?.demand?.slope ?? config.demandSlope;
     const demandScale = realizedParams?.demand?.scale ?? 100;
     const demandElasticity = realizedParams?.demand?.elasticity ?? 2;
+    const demandSubstitutionElasticity = realizedParams?.demand?.substitutionElasticity ?? 2;
+    const demandPriceCoefficient = realizedParams?.demand?.priceCoefficient ?? 10;
+    const demandDecayRate = realizedParams?.demand?.decayRate ?? 0.01;
 
     // Use custom prompt if provided
     if (config.customSystemPrompt) {
@@ -122,6 +196,30 @@ export class LLMService {
         prompt += `- Demand has constant price elasticity: ε = ${demandElasticity.toFixed(2)}\n`;
         prompt += `- Market price function: P = ${demandScale.toFixed(2)} × Q^(-1/${demandElasticity.toFixed(2)})\n`;
         prompt += `- This means demand becomes less elastic as quantity increases\n`;
+        if (gamma < 1) {
+          prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)})\n`;
+        }
+      } else if (demandType === 'ces') {
+        // CES demand: P = A * Q^(-1/σ)
+        prompt += `- Demand follows CES (Constant Elasticity of Substitution) form\n`;
+        prompt += `- Substitution elasticity: σ = ${demandSubstitutionElasticity.toFixed(2)}\n`;
+        prompt += `- Market price function: P = ${demandScale.toFixed(2)} × Q^(-1/${demandSubstitutionElasticity.toFixed(2)})\n`;
+        if (gamma < 1) {
+          prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)})\n`;
+        }
+      } else if (demandType === 'logit') {
+        // Logit demand: P = a - b * ln(Q)
+        prompt += `- Demand follows a logit-like form with logarithmic price sensitivity\n`;
+        prompt += `- Market price function: P = ${demandIntercept} - ${demandPriceCoefficient.toFixed(2)} × ln(Q)\n`;
+        prompt += `- Price decreases logarithmically as quantity increases\n`;
+        if (gamma < 1) {
+          prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)})\n`;
+        }
+      } else if (demandType === 'exponential') {
+        // Exponential demand: P = A * e^(-bQ)
+        prompt += `- Demand follows an exponential decay form\n`;
+        prompt += `- Market price function: P = ${demandScale.toFixed(2)} × e^(-${demandDecayRate.toFixed(4)} × Q)\n`;
+        prompt += `- Price decays exponentially as quantity increases\n`;
         if (gamma < 1) {
           prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)})\n`;
         }
@@ -406,7 +504,7 @@ export class LLMService {
   ): Promise<LLMDecision> {
     const firmConfig = getFirmConfig(config, firmNumber);
     const modelString = firmConfig.model;
-    const { model: baseModel, reasoning, useResponsesAPI } = parseModelString(modelString);
+    const { model: baseModel, reasoning, useResponsesAPI, isGemini } = parseModelString(modelString);
     const systemPrompt = this.generateSystemPrompt(config, firmNumber, realizedParams);
     const userPrompt = this.generateRoundPrompt(config, firmNumber, currentRound, history);
     const mode = getCompetitionMode(config);
@@ -416,7 +514,11 @@ export class LLMService {
     try {
       let content: string | null = null;
 
-      if (useResponsesAPI) {
+      if (isGemini) {
+        // Use Gemini API
+        const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+        content = await this.callGemini(baseModel, fullPrompt);
+      } else if (useResponsesAPI) {
         // Use Responses API for GPT-5 family models
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const requestParams: any = {
@@ -576,7 +678,7 @@ export class LLMService {
 
   /**
    * Get a communication message from a firm
-   * Supports GPT-5 family models with Responses API
+   * Supports GPT-5 family models with Responses API and Gemini models
    */
   async getCommunicationMessage(
     config: CournotConfig,
@@ -587,7 +689,7 @@ export class LLMService {
   ): Promise<string> {
     const firmConfig = getFirmConfig(config, firmNumber);
     const modelString = firmConfig.model;
-    const { model: baseModel, reasoning, useResponsesAPI } = parseModelString(modelString);
+    const { model: baseModel, reasoning, useResponsesAPI, isGemini } = parseModelString(modelString);
     const systemPrompt = this.generateSystemPrompt(config, firmNumber);
     const userPrompt = this.generateCommunicationPrompt(config, firmNumber, currentRound, conversationHistory);
 
@@ -596,7 +698,11 @@ export class LLMService {
     try {
       let content: string | null = null;
 
-      if (useResponsesAPI) {
+      if (isGemini) {
+        // Use Gemini API
+        const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+        content = await this.callGemini(baseModel, fullPrompt);
+      } else if (useResponsesAPI) {
         // Use Responses API for GPT-5 family models
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const requestParams: any = {
