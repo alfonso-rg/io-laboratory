@@ -668,6 +668,31 @@ export class EconomicsService {
     const { demandIntercept: a, demandSlope: b } = config;
     const gamma = getGamma(config);
 
+    // For Bertrand with quadratic costs (d_i > 0), the FOC produces a nonlinear system
+    // in prices and quantities that cannot be solved analytically with this method.
+    // Only d_i = 0 (linear costs) yields a tractable linear system.
+    const hasQuadraticCosts = Array.from({ length: numFirms }, (_, i) =>
+      getFirmConfig(config, i + 1).quadraticCost
+    ).some(d => d > 0);
+
+    if (hasQuadraticCosts) {
+      return {
+        competitionMode: 'bertrand',
+        firms: Array.from({ length: numFirms }, (_, i) => ({
+          firmId: i + 1,
+          quantity: NaN,
+          price: NaN,
+          profit: NaN,
+        })),
+        totalQuantity: NaN,
+        marketPrices: [],
+        avgMarketPrice: NaN,
+        totalProfit: NaN,
+        calculable: false,
+        message: 'Nash-Bertrand equilibrium is not analytically tractable with quadratic costs (d_i > 0)',
+      };
+    }
+
     // For Bertrand with differentiation, we need γ < 1 for interior solution
     // With γ = 1 (homogeneous), Bertrand leads to p = MC (perfect competition)
 
@@ -768,31 +793,29 @@ export class EconomicsService {
     for (let i = 0; i < numFirms; i++) {
       const p_i = prices[i];
 
-      // Direct demand with differentiation
+      // Direct demand — Singh & Vives (1984) for n firms, linear demand:
+      // q_i = [a*(1-γ) - p_i*(1+(n-2)γ) + γ*Σ_{j≠i} p_j] / [b*(1-γ)*(1+(n-1)γ)]
       let otherPricesSum = 0;
       for (let j = 0; j < numFirms; j++) {
         if (j !== i) otherPricesSum += prices[j];
       }
 
-      // q_i = [a - p_i + γ/(1-γ) * (avg_p_j - p_i)] / b  (simplified)
-      // More precisely: q_i = (a - p_i - γ*(a - p̄)) / (b*(1-γ²)) where p̄ = avg other prices
-      const avgOtherPrice = numFirms > 1 ? otherPricesSum / (numFirms - 1) : p_i;
-      const q_i = Math.max(0, (a * (1 - gamma) - p_i * (1 - gamma * gamma / (numFirms > 1 ? 1 : 1)) + gamma * (avgOtherPrice - p_i * gamma)) / (b * (1 - gamma * gamma)));
+      const kappa = 1 + (numFirms - 2) * gamma;           // 1+(n-2)γ
+      const demandDenominator = b * (1 - gamma) * (1 + (numFirms - 1) * gamma); // b*(1-γ)*(1+(n-1)γ)
+      const q_i = demandDenominator > 1e-10
+        ? Math.max(0, (a * (1 - gamma) - p_i * kappa + gamma * otherPricesSum) / demandDenominator)
+        : 0;
 
-      // Simpler formula for symmetric case: q_i = (a - p_i - γ*(n-1)*(p̄ - p_i)/(n-1)) / b
-      // Let's use a cleaner formulation
-      const q_i_clean = Math.max(0, (a - p_i - gamma * (otherPricesSum - (numFirms - 1) * p_i) / (numFirms > 1 ? numFirms - 1 : 1)) / b);
-
-      totalQuantity += q_i_clean;
+      totalQuantity += q_i;
 
       const firmConfig = getFirmConfig(config, i + 1);
-      const cost_i = this.calculateCost(q_i_clean, firmConfig.linearCost, firmConfig.quadraticCost);
-      const profit_i = p_i * q_i_clean - cost_i;
+      const cost_i = this.calculateCost(q_i, firmConfig.linearCost, firmConfig.quadraticCost);
+      const profit_i = p_i * q_i - cost_i;
       totalProfit += profit_i;
 
       firms.push({
         firmId: i + 1,
-        quantity: q_i_clean,
+        quantity: q_i,
         price: p_i,
         profit: profit_i,
       });
@@ -966,13 +989,18 @@ export class EconomicsService {
         for (let j = 0; j < numFirms; j++) {
           if (j !== i) otherPricesSum += (prices[j] ?? p_i);
         }
-        const avgOtherPrice = numFirms > 1 ? otherPricesSum / (numFirms - 1) : p_i;
 
         // Calculate quantity based on demand type
         if (demand.type === 'linear') {
           const a = demand.intercept ?? config.demandIntercept;
           const b = demand.slope ?? config.demandSlope;
-          q_i = Math.max(0, (a - p_i + gamma * (avgOtherPrice - p_i)) / b);
+          // Singh & Vives (1984) direct demand for n firms:
+          // q_i = [a*(1-γ) - p_i*(1+(n-2)γ) + γ*Σ_{j≠i} p_j] / [b*(1-γ)*(1+(n-1)γ)]
+          const kappa = 1 + (numFirms - 2) * gamma;           // 1+(n-2)γ
+          const demandDenominator = b * (1 - gamma) * (1 + (numFirms - 1) * gamma);
+          q_i = demandDenominator > 1e-10
+            ? Math.max(0, (a * (1 - gamma) - p_i * kappa + gamma * otherPricesSum) / demandDenominator)
+            : 0;
         } else {
           // CES: P = A * Q^(-1/σ), so Q = (P/A)^(-σ)
           const A = demand.scale ?? 100;

@@ -249,14 +249,46 @@ export class CournotService {
   }
 
   /**
-   * Calculate summary for a replication
+   * Calculate summary for a replication.
+   * Legacy duopoly fields are always populated for backward compatibility.
+   * firmSummaries covers all N firms using firmResults when available.
    */
   private calculateReplicationSummary(rounds: RoundResult[]) {
+    const n = rounds.length || 1;
+
+    // Legacy fields (duopoly backward compatibility)
     const totalFirm1Profit = rounds.reduce((sum, r) => sum + r.firm1Profit, 0);
     const totalFirm2Profit = rounds.reduce((sum, r) => sum + r.firm2Profit, 0);
-    const avgFirm1Quantity = rounds.reduce((sum, r) => sum + r.firm1Quantity, 0) / rounds.length;
-    const avgFirm2Quantity = rounds.reduce((sum, r) => sum + r.firm2Quantity, 0) / rounds.length;
-    const avgMarketPrice = rounds.reduce((sum, r) => sum + r.marketPrice, 0) / rounds.length;
+    const avgFirm1Quantity = rounds.reduce((sum, r) => sum + r.firm1Quantity, 0) / n;
+    const avgFirm2Quantity = rounds.reduce((sum, r) => sum + r.firm2Quantity, 0) / n;
+    const avgMarketPrice = rounds.reduce((sum, r) => sum + r.marketPrice, 0) / n;
+
+    // N-firm extended summary using firmResults
+    const firstRoundWithResults = rounds.find(r => r.firmResults && r.firmResults.length > 0);
+    let firmSummaries: { firmId: number; totalProfit: number; avgQuantity: number }[] | undefined;
+
+    if (firstRoundWithResults?.firmResults) {
+      const numFirms = firstRoundWithResults.firmResults.length;
+      firmSummaries = Array.from({ length: numFirms }, (_, i) => {
+        const firmId = i + 1;
+        let totalProfit = 0;
+        let totalQuantity = 0;
+
+        for (const round of rounds) {
+          if (round.firmResults) {
+            const fr = round.firmResults.find(f => f.firmId === firmId);
+            totalProfit += fr?.profit ?? 0;
+            totalQuantity += fr?.quantity ?? 0;
+          } else {
+            // Fallback to legacy fields for firms 1 and 2
+            totalProfit += firmId === 1 ? round.firm1Profit : firmId === 2 ? round.firm2Profit : 0;
+            totalQuantity += firmId === 1 ? round.firm1Quantity : firmId === 2 ? round.firm2Quantity : 0;
+          }
+        }
+
+        return { firmId, totalProfit, avgQuantity: totalQuantity / n };
+      });
+    }
 
     return {
       totalFirm1Profit,
@@ -264,6 +296,7 @@ export class CournotService {
       avgFirm1Quantity,
       avgFirm2Quantity,
       avgMarketPrice,
+      firmSummaries,
     };
   }
 

@@ -316,11 +316,18 @@ export interface ReplicationResult {
   replicationNumber: number;
   rounds: RoundResult[];
   summary: {
+    // Legacy duopoly fields (always populated for backward compatibility)
     totalFirm1Profit: number;
     totalFirm2Profit: number;
     avgFirm1Quantity: number;
     avgFirm2Quantity: number;
     avgMarketPrice: number;
+    // N-firm extended summary (populated when numFirms > 2)
+    firmSummaries?: {
+      firmId: number;
+      totalProfit: number;
+      avgQuantity: number;
+    }[];
   };
   startedAt: Date;
   completedAt: Date;
