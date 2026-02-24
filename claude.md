@@ -1,5 +1,12 @@
 # IO Laboratory - Oligopoly Competition entre LLMs
 
+## Instrucciones para Claude
+
+> **OBLIGATORIO**: Al finalizar cualquier tarea (corrección, nueva funcionalidad, refactor, etc.), Claude debe:
+> 1. Actualizar este archivo `CLAUDE.md` reflejando los cambios realizados (nuevas secciones, correcciones de bugs, notas técnicas, etc.)
+> 2. Hacer `git add` de los ficheros modificados y un `git commit` descriptivo
+> 3. Hacer `git push` para que los cambios queden en el repositorio remoto
+
 ## Resumen del Proyecto
 
 Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 firmas controladas por modelos GPT compiten eligiendo cantidades (Cournot) o precios (Bertrand) en un juego repetido. Permite configurar diferenciación de productos, información asimétrica, comunicación entre firmas, múltiples réplicas experimentales, parámetros aleatorios y funciones de demanda alternativas.
@@ -607,6 +614,26 @@ Cuando se usan parámetros aleatorios, es crítico que el prompt enviado al LLM 
 - Soporte completo para N firmas (2-10) en GameBoard, GameResults y tablas
 - El equilibrio Bertrand con γ=1 es precio = coste marginal mínimo
 - El cálculo N-poly usa eliminación gaussiana con pivoteo parcial
+
+### Fórmula de Demanda Directa Bertrand (Singh & Vives 1984)
+
+Para n firmas con demanda lineal diferenciada, la demanda directa correcta es:
+```
+q_i = [a(1-γ) - p_i(1+(n-2)γ) + γΣ_{j≠i} p_j] / [b(1-γ)(1+(n-1)γ)]
+```
+Esta fórmula se usa en dos lugares de `EconomicsService.ts`:
+1. `calculateNashBertrandNFirms`: para obtener cantidades a partir de precios de equilibrio
+2. `calculateNPolyRoundResult`: para obtener cantidades a partir de precios decididos por los LLMs
+
+**Limitaciones del equilibrio Nash Bertrand:**
+- Solo calculable analíticamente con demanda lineal y costes lineales (d_i = 0)
+- Con d_i > 0: la FOC produce un sistema no lineal → devuelve `calculable: false`
+- Con γ = 1 (homogéneo) y d_i = 0: precio = min(c_i), q_total = (a - p)/b
+
+### Resumen de Réplicas (N firmas)
+`ReplicationResult.summary` contiene:
+- Campos legacy `totalFirm1Profit`, `avgFirm1Quantity`, etc. (siempre presentes, solo firmas 1 y 2)
+- Campo extendido `firmSummaries[]` con `{firmId, totalProfit, avgQuantity}` para todas las firmas (presente cuando hay `firmResults` en las rondas)
 
 ## Retrocompatibilidad
 
