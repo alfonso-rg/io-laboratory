@@ -168,8 +168,8 @@ export class LLMService {
         .replace(/{firmNumber}/g, String(firmNumber))
         .replace(/{numFirms}/g, String(numFirms))
         .replace(/{totalRounds}/g, String(config.totalRounds))
-        .replace(/{demandIntercept}/g, String(config.demandIntercept))
-        .replace(/{demandSlope}/g, String(config.demandSlope))
+        .replace(/{demandIntercept}/g, String(demandIntercept))
+        .replace(/{demandSlope}/g, String(demandSlope))
         .replace(/{gamma}/g, String(gamma))
         .replace(/{competitionMode}/g, mode)
         .replace(/{ownLinearCost}/g, String(ownLinearCost))
@@ -309,8 +309,8 @@ export class LLMService {
     }
     prompt += '- Following lines (optional): Your reasoning\n\n';
 
-    prompt += 'Example response:\n';
-    prompt += isBertrand ? '45.0\n' : '25.5\n';
+    prompt += 'Example response format:\n';
+    prompt += `[your chosen ${isBertrand ? 'price' : 'quantity'}]\n`;
     prompt += `I chose this ${isBertrand ? 'price' : 'quantity'} because...`;
 
     return prompt;

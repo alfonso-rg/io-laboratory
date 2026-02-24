@@ -244,6 +244,7 @@ io-laboratory/
 - **Prompts personalizados**:
   - Botón "View Default Prompt" para ver el prompt que se enviará al LLM según la configuración actual
   - Selector de firma para previsualizar prompt por firma
+  - La vista previa muestra `[random ~ Distribución(params)]` cuando un parámetro está aleatorizado
   - Editor de system prompt con variables disponibles
   - Botón "Copy to Editor" para personalizar el prompt predefinido
 - **Parámetros Aleatorios**:
@@ -564,6 +565,14 @@ interface LimitPricingAnalysis {
 - **Base de datos**: MongoDB Atlas
 
 Al hacer push a main, ambos servicios se despliegan automáticamente.
+
+## Coherencia de Parámetros Aleatorios en Prompts
+
+Cuando se usan parámetros aleatorios, es crítico que el prompt enviado al LLM refleje los valores **realizados** (sorteados), no los valores del config (especificación de distribución):
+
+- **Servidor (`LLMService.generateSystemPrompt`)**: Usa `realizedParams` para todos los valores del prompt (costes propios, costes rivales, demanda, gamma). Si `realizedParams` no existe (sin aleatorización), usa los valores fijos del config. El bloque de custom prompt también usa los valores realizados via `demandIntercept`/`demandSlope` (calculados desde `realizedParams`).
+- **Cliente (vista previa en `AdvancedSettings`)**: No puede mostrar valores realizados (aún no sorteados), por eso muestra `[random ~ Distribución(params)]` para parámetros aleatorios, indicando claramente al investigador que el valor variará en cada juego/ronda.
+- **Ejemplo de respuesta en el prompt**: No debe contener números concretos (ancla al LLM). Usa `[your chosen quantity]` / `[your chosen price]` como placeholder.
 
 ## Notas Técnicas
 

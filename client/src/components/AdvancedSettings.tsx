@@ -21,17 +21,50 @@ interface AdvancedSettingsProps {
   disabled: boolean;
 }
 
+// Helper to describe a ParameterSpec value for preview purposes
+function specToPreviewString(spec: ParameterSpec | undefined, fixedFallback: number): string {
+  if (!spec || spec.type === 'fixed') return String(fixedFallback);
+  if (spec.type === 'uniform') return `[random ~ Uniform(${spec.min ?? 0}, ${spec.max ?? 1})]`;
+  if (spec.type === 'normal') return `[random ~ N(${spec.mean ?? 0}, ${spec.stdDev ?? 1})]`;
+  if (spec.type === 'lognormal') return `[random ~ LogN(${spec.mean ?? 1}, ${spec.stdDev ?? 0.5})]`;
+  return String(fixedFallback);
+}
+
 // Generate the default system prompt (mirrors server logic)
 function generateDefaultPrompt(config: CournotConfig, firmNumber: number): string {
   const numFirms = getNumFirms(config);
-  const gamma = getGamma(config);
   const mode = getCompetitionMode(config);
   const firmConfig = getFirmConfig(config, firmNumber);
   const info = firmConfig.info;
-  const ownLinearCost = firmConfig.linearCost;
-  const ownQuadraticCost = firmConfig.quadraticCost;
-  const rivalLinearCost = numFirms === 2 ? getFirmConfig(config, firmNumber === 1 ? 2 : 1).linearCost : 0;
-  const rivalQuadraticCost = numFirms === 2 ? getFirmConfig(config, firmNumber === 1 ? 2 : 1).quadraticCost : 0;
+
+  // Costs: use firmCostSpecs if present (random), else fixed config values
+  const firmCostSpec = config.firmCostSpecs?.[firmNumber - 1];
+  const ownLinearCost = specToPreviewString(firmCostSpec?.linearCost, firmConfig.linearCost);
+  const ownQuadraticCost = specToPreviewString(firmCostSpec?.quadraticCost, firmConfig.quadraticCost);
+  const rivalFirmIndex = firmNumber === 1 ? 1 : 0;
+  const rivalCostSpec = config.firmCostSpecs?.[rivalFirmIndex];
+  const rivalFirmConfig = numFirms === 2 ? getFirmConfig(config, firmNumber === 1 ? 2 : 1) : null;
+  const rivalLinearCost = specToPreviewString(rivalCostSpec?.linearCost, rivalFirmConfig?.linearCost ?? 0);
+  const rivalQuadraticCost = specToPreviewString(rivalCostSpec?.quadraticCost, rivalFirmConfig?.quadraticCost ?? 0);
+
+  // Gamma: use gammaSpec if present (random), else fixed config value
+  const gammaRaw = getGamma(config);
+  const gammaStr = specToPreviewString(config.gammaSpec, gammaRaw);
+  const gammaIsRandom = config.gammaSpec && config.gammaSpec.type !== 'fixed';
+  // For structural decisions (e.g. differentiation branch) use the fixed fallback
+  const gamma = gammaRaw;
+
+  // Demand: use demandFunction specs if present (random), else fixed config values
+  const demandFunction = config.demandFunction;
+  let demandInterceptStr: string;
+  let demandSlopeStr: string;
+  if (demandFunction?.type === 'linear') {
+    demandInterceptStr = specToPreviewString(demandFunction.intercept, config.demandIntercept);
+    demandSlopeStr = specToPreviewString(demandFunction.slope, config.demandSlope);
+  } else {
+    demandInterceptStr = String(config.demandIntercept);
+    demandSlopeStr = String(config.demandSlope);
+  }
 
   const isBertrand = mode === 'bertrand';
   const competitionType = isBertrand ? 'price' : 'quantity';
@@ -46,21 +79,21 @@ function generateDefaultPrompt(config: CournotConfig, firmNumber: number): strin
   if (info.revealDemandFunction) {
     if (isBertrand) {
       if (gamma < 1) {
-        prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your demand depends on your price and competitors' prices.\n`;
-        prompt += `- Base demand: approximately q = (${config.demandIntercept} - your_price + ${gamma.toFixed(2)} × avg_competitor_price_diff) / ${config.demandSlope}\n`;
+        prompt += `- Products are differentiated (γ = ${gammaIsRandom ? gammaStr : gamma.toFixed(2)}). Your demand depends on your price and competitors' prices.\n`;
+        prompt += `- Base demand: approximately q = (${demandInterceptStr} - your_price + ${gammaIsRandom ? gammaStr : gamma.toFixed(2)} × avg_competitor_price_diff) / ${demandSlopeStr}\n`;
       } else {
-        prompt += `- Products are homogeneous. Market demand: Q = (${config.demandIntercept} - P) / ${config.demandSlope}\n`;
+        prompt += `- Products are homogeneous. Market demand: Q = (${demandInterceptStr} - P) / ${demandSlopeStr}\n`;
         prompt += '- The firm with the lowest price captures most/all of the market.\n';
       }
     } else {
       if (gamma < 1) {
-        prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your price depends on your quantity and competitors' quantities.\n`;
-        prompt += `- Your price: p = ${config.demandIntercept} - ${config.demandSlope} × (your_q + ${gamma.toFixed(2)} × sum_of_others_q)\n`;
+        prompt += `- Products are differentiated (γ = ${gammaIsRandom ? gammaStr : gamma.toFixed(2)}). Your price depends on your quantity and competitors' quantities.\n`;
+        prompt += `- Your price: p = ${demandInterceptStr} - ${demandSlopeStr} × (your_q + ${gammaIsRandom ? gammaStr : gamma.toFixed(2)} × sum_of_others_q)\n`;
       } else {
         if (numFirms === 2) {
-          prompt += `- Market price is determined by total quantity: P = ${config.demandIntercept} - ${config.demandSlope} × (q1 + q2)\n`;
+          prompt += `- Market price is determined by total quantity: P = ${demandInterceptStr} - ${demandSlopeStr} × (q1 + q2)\n`;
         } else {
-          prompt += `- Market price is determined by total quantity: P = ${config.demandIntercept} - ${config.demandSlope} × (q1 + q2 + ... + q${numFirms})\n`;
+          prompt += `- Market price is determined by total quantity: P = ${demandInterceptStr} - ${demandSlopeStr} × (q1 + q2 + ... + q${numFirms})\n`;
         }
       }
     }
@@ -73,21 +106,24 @@ function generateDefaultPrompt(config: CournotConfig, firmNumber: number): strin
   }
 
   if (info.revealOwnCosts) {
+    const ownLinearCostIsRandom = firmCostSpec && firmCostSpec.linearCost.type !== 'fixed';
+    const ownQuadraticCostIsRandom = firmCostSpec && firmCostSpec.quadraticCost.type !== 'fixed';
     let costDescription = `C(q) = ${ownLinearCost} × q`;
-    if (ownQuadraticCost > 0) {
+    if (ownQuadraticCostIsRandom || firmConfig.quadraticCost > 0) {
       costDescription += ` + ${ownQuadraticCost} × q²`;
     }
     prompt += `- Your cost function: ${costDescription}\n`;
     if (isBertrand) {
-      prompt += `- Your marginal cost starts at ${ownLinearCost}\n`;
+      prompt += `- Your marginal cost starts at ${ownLinearCost}${ownLinearCostIsRandom ? ' (drawn each game)' : ''}\n`;
     }
   } else {
     prompt += '- You have production costs that increase with quantity\n';
   }
 
   if (info.revealRivalCosts && numFirms === 2) {
+    const rivalQuadraticCostIsRandom = rivalCostSpec && rivalCostSpec.quadraticCost.type !== 'fixed';
     let rivalCostDescription = `C(q) = ${rivalLinearCost} × q`;
-    if (rivalQuadraticCost > 0) {
+    if (rivalQuadraticCostIsRandom || (rivalFirmConfig?.quadraticCost ?? 0) > 0) {
       rivalCostDescription += ` + ${rivalQuadraticCost} × q²`;
     }
     prompt += `- Your rival's cost function: ${rivalCostDescription}\n`;
@@ -132,8 +168,8 @@ function generateDefaultPrompt(config: CournotConfig, firmNumber: number): strin
   }
   prompt += '- Following lines (optional): Your reasoning\n\n';
 
-  prompt += 'Example response:\n';
-  prompt += isBertrand ? '45.0\n' : '25.5\n';
+  prompt += 'Example response format:\n';
+  prompt += `[your chosen ${isBertrand ? 'price' : 'quantity'}]\n`;
   prompt += `I chose this ${isBertrand ? 'price' : 'quantity'} because...`;
 
   return prompt;
