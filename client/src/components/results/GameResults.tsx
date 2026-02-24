@@ -128,7 +128,7 @@ export function GameResults() {
           <p className="text-lg">
             After {rounds.length} rounds of competition
             {summary.winners.length === 1 && (
-              <span> with ${summary.winners[0].totalProfit.toFixed(2)} total profit</span>
+              <span> with {summary.winners[0].totalProfit.toFixed(2)} total profit</span>
             )}
           </p>
         </div>

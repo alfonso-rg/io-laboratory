@@ -578,6 +578,7 @@ Al hacer push a main, ambos servicios se despliegan automáticamente.
 Cuando se usan parámetros aleatorios, es crítico que el prompt enviado al LLM refleje los valores **realizados** (sorteados), no los valores del config (especificación de distribución):
 
 - **Servidor (`LLMService.generateSystemPrompt`)**: Usa `realizedParams` para todos los valores del prompt (costes propios, costes rivales, demanda, gamma). Si `realizedParams` no existe (sin aleatorización), usa los valores fijos del config. El bloque de custom prompt también usa los valores realizados via `demandIntercept`/`demandSlope` (calculados desde `realizedParams`).
+- **Servidor (`LLMService.getCommunicationMessage`)**: Recibe y pasa `realizedParams` a `generateSystemPrompt` para que la fase de comunicación también use valores realizados coherentes con la fase de decisión.
 - **Cliente (vista previa en `AdvancedSettings`)**: No puede mostrar valores realizados (aún no sorteados), por eso muestra `[random ~ Distribución(params)]` para parámetros aleatorios, indicando claramente al investigador que el valor variará en cada juego/ronda.
 - **Ejemplo de respuesta en el prompt**: No debe contener números concretos (ancla al LLM). Usa `[your chosen quantity]` / `[your chosen price]` como placeholder.
 
@@ -634,6 +635,11 @@ Esta fórmula se usa en dos lugares de `EconomicsService.ts`:
 `ReplicationResult.summary` contiene:
 - Campos legacy `totalFirm1Profit`, `avgFirm1Quantity`, etc. (siempre presentes, solo firmas 1 y 2)
 - Campo extendido `firmSummaries[]` con `{firmId, totalProfit, avgQuantity}` para todas las firmas (presente cuando hay `firmResults` en las rondas)
+
+### Exportación CSV (N firmas)
+- **Formato `rounds`**: Columnas dinámicas para N firmas (`Firm1_Decision`, `Firm1_Profit`, ..., `FirmN_Decision`, `FirmN_Profit`). Para Bertrand, la columna Decision exporta el precio (no la cantidad derivada).
+- **Formato `summary`**: Columnas dinámicas para N firmas (`AvgFirm1Decision`, `TotalFirm1Profit`, ...). Usa `firmSummaries` para firmas 3+, con fallback a campos legacy para firmas 1-2.
+- **Bulk export**: Usa el máximo número de firmas de todos los juegos seleccionados para definir las columnas.
 
 ## Retrocompatibilidad
 

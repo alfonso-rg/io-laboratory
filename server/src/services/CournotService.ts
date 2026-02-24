@@ -353,7 +353,7 @@ export class CournotService {
         this.io.emit('communication-started', roundNumber);
         logger.info(`Starting communication phase for round ${roundNumber}`);
 
-        communication = await this.runCommunicationPhase(roundNumber);
+        communication = await this.runCommunicationPhase(roundNumber, realizedParams);
         this.io.emit('communication-complete', communication);
       }
 
@@ -436,7 +436,8 @@ export class CournotService {
    * Run communication phase for a round (supports N firms)
    */
   private async runCommunicationPhase(
-    roundNumber: number
+    roundNumber: number,
+    realizedParams?: RealizedParameters
   ): Promise<{ firm: number; message: string }[]> {
     if (!this.gameState) return [];
 
@@ -456,7 +457,8 @@ export class CournotService {
         currentFirm,
         roundNumber,
         this.gameState.rounds,
-        conversation
+        conversation,
+        realizedParams
       );
 
       conversation.push({ firm: currentFirm, message });

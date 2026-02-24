@@ -676,12 +676,13 @@ export class LLMService {
     firmNumber: number,
     currentRound: number,
     history: RoundResult[],
-    conversationHistory: { firm: number; message: string }[]
+    conversationHistory: { firm: number; message: string }[],
+    realizedParams?: RealizedParameters
   ): Promise<string> {
     const firmConfig = getFirmConfig(config, firmNumber);
     const modelString = firmConfig.model;
     const { model: baseModel, reasoning, useResponsesAPI, isGemini } = parseModelString(modelString);
-    const systemPrompt = this.generateSystemPrompt(config, firmNumber);
+    const systemPrompt = this.generateSystemPrompt(config, firmNumber, realizedParams);
     const userPrompt = this.generateCommunicationPrompt(config, firmNumber, currentRound, conversationHistory);
 
     logger.info(`Requesting communication from Firm ${firmNumber} (${baseModel}${reasoning ? `:${reasoning}` : ''})`);
@@ -753,7 +754,8 @@ export class LLMService {
   async runCommunicationPhase(
     config: CournotConfig,
     currentRound: number,
-    history: RoundResult[]
+    history: RoundResult[],
+    realizedParams?: RealizedParameters
   ): Promise<{ firm: number; message: string }[]> {
     const messagesPerRound = config.communication.messagesPerRound || 2;
     const numFirms = getNumFirms(config);
@@ -769,7 +771,8 @@ export class LLMService {
         currentFirm,
         currentRound,
         history,
-        conversation
+        conversation,
+        realizedParams
       );
 
       conversation.push({ firm: currentFirm, message });

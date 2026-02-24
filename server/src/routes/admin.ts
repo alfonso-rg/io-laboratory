@@ -276,7 +276,9 @@ router.get('/games/:gameId/export', async (req: Request, res: Response) => {
 
           for (let i = 1; i <= numFirms; i++) {
             const firm = firmResults.find(f => f.firmId === i);
-            row.push(firm?.quantity ?? 0);
+            // For Bertrand, export the price decision; for Cournot, export quantity
+            const decision = isBertrand ? (firm?.price ?? firm?.quantity ?? 0) : (firm?.quantity ?? 0);
+            row.push(decision);
             row.push(firm?.profit ?? 0);
             if (includeReasoning) {
               row.push(firm?.reasoning || '');
@@ -322,18 +324,16 @@ router.get('/games/:gameId/export', async (req: Request, res: Response) => {
         }
       }
     } else if (format === 'summary') {
-      // Summary format - aggregate by replication
-      const headers = [
-        'Replication',
-        'TotalRounds',
-        'AvgFirm1Quantity',
-        'AvgFirm2Quantity',
-        'TotalFirm1Profit',
-        'TotalFirm2Profit',
-        'AvgMarketPrice',
-        'StartedAt',
-        'CompletedAt',
-      ];
+      // Summary format - aggregate by replication (supports N firms)
+      const headers = ['Replication', 'TotalRounds'];
+
+      // Dynamic firm columns
+      for (let i = 1; i <= numFirms; i++) {
+        headers.push(`AvgFirm${i}${isBertrand ? 'Price' : 'Quantity'}`);
+        headers.push(`TotalFirm${i}Profit`);
+      }
+
+      headers.push('AvgMarketPrice', 'StartedAt', 'CompletedAt');
 
       csv = headers.map(h => escapeCSV(h)).join(',') + '\n';
 
@@ -350,17 +350,29 @@ router.get('/games/:gameId/export', async (req: Request, res: Response) => {
       for (const rep of replications) {
         const repData = rep as ReplicationResult & { summary?: typeof game.summary; startedAt?: Date; completedAt?: Date };
         const summary = repData.summary || game.summary;
-        const row = [
+        const row: (string | number)[] = [
           repData.replicationNumber,
           repData.rounds.length,
-          summary.avgFirm1Quantity,
-          summary.avgFirm2Quantity,
-          summary.totalFirm1Profit,
-          summary.totalFirm2Profit,
+        ];
+
+        // Add per-firm averages (use firmSummaries if available, fallback to legacy)
+        for (let i = 1; i <= numFirms; i++) {
+          const firmSummary = summary.firmSummaries?.find((fs: { firmId: number }) => fs.firmId === i);
+          if (firmSummary) {
+            row.push(firmSummary.avgQuantity);
+            row.push(firmSummary.totalProfit);
+          } else {
+            // Legacy fallback for firms 1 and 2
+            row.push(i === 1 ? summary.avgFirm1Quantity : i === 2 ? summary.avgFirm2Quantity : 0);
+            row.push(i === 1 ? summary.totalFirm1Profit : i === 2 ? summary.totalFirm2Profit : 0);
+          }
+        }
+
+        row.push(
           summary.avgMarketPrice,
           repData.startedAt ? new Date(repData.startedAt).toISOString() : '',
           repData.completedAt ? new Date(repData.completedAt).toISOString() : '',
-        ];
+        );
 
         csv += row.map(v => escapeCSV(v)).join(',') + '\n';
       }
@@ -538,7 +550,9 @@ router.post('/games/bulk-export', async (req: Request, res: Response) => {
 
             for (let i = 1; i <= maxFirms; i++) {
               const firm = firmResults.find(f => f.firmId === i);
-              row.push(firm?.quantity ?? '');
+              // For Bertrand, export the price decision; for Cournot, export quantity
+              const decision = isBertrand ? (firm?.price ?? firm?.quantity ?? '') : (firm?.quantity ?? '');
+              row.push(decision);
               row.push(firm?.profit ?? '');
               if (includeReasoning) {
                 row.push(firm?.reasoning || '');
@@ -558,22 +572,22 @@ router.post('/games/bulk-export', async (req: Request, res: Response) => {
         }
       }
     } else {
-      // Summary format
-      const headers = [
-        'GameId',
-        'Replication',
-        'CompetitionMode',
-        'NumFirms',
-        'Gamma',
-        'TotalRounds',
-        'AvgFirm1Quantity',
-        'AvgFirm2Quantity',
-        'TotalFirm1Profit',
-        'TotalFirm2Profit',
-        'AvgMarketPrice',
-        'StartedAt',
-        'CompletedAt',
-      ];
+      // Summary format (supports N firms via dynamic columns)
+      // Find max number of firms across all games
+      let maxFirms = 2;
+      for (const game of games) {
+        const numFirms = game.config.numFirms || 2;
+        if (numFirms > maxFirms) maxFirms = numFirms;
+      }
+
+      const headers = ['GameId', 'Replication', 'CompetitionMode', 'NumFirms', 'Gamma', 'TotalRounds'];
+
+      for (let i = 1; i <= maxFirms; i++) {
+        headers.push(`AvgFirm${i}Decision`);
+        headers.push(`TotalFirm${i}Profit`);
+      }
+
+      headers.push('AvgMarketPrice', 'StartedAt', 'CompletedAt');
 
       csv = headers.map(h => escapeCSV(h)).join(',') + '\n';
 
@@ -591,21 +605,32 @@ router.post('/games/bulk-export', async (req: Request, res: Response) => {
         for (const rep of replications) {
           const repData = rep as ReplicationResult & { summary?: typeof game.summary; startedAt?: Date; completedAt?: Date };
           const summary = repData.summary || game.summary;
-          const row = [
+          const row: (string | number)[] = [
             game.gameId,
             repData.replicationNumber,
             game.config.competitionMode || 'cournot',
             game.config.numFirms || 2,
             game.config.gamma ?? 1,
             repData.rounds.length,
-            summary.avgFirm1Quantity,
-            summary.avgFirm2Quantity,
-            summary.totalFirm1Profit,
-            summary.totalFirm2Profit,
+          ];
+
+          // Add per-firm averages (use firmSummaries if available, fallback to legacy)
+          for (let i = 1; i <= maxFirms; i++) {
+            const firmSummary = summary.firmSummaries?.find((fs: { firmId: number }) => fs.firmId === i);
+            if (firmSummary) {
+              row.push(firmSummary.avgQuantity);
+              row.push(firmSummary.totalProfit);
+            } else {
+              row.push(i === 1 ? summary.avgFirm1Quantity : i === 2 ? summary.avgFirm2Quantity : '');
+              row.push(i === 1 ? summary.totalFirm1Profit : i === 2 ? summary.totalFirm2Profit : '');
+            }
+          }
+
+          row.push(
             summary.avgMarketPrice,
             repData.startedAt ? new Date(repData.startedAt).toISOString() : '',
             repData.completedAt ? new Date(repData.completedAt).toISOString() : '',
-          ];
+          );
 
           csv += row.map(v => escapeCSV(v)).join(',') + '\n';
         }
