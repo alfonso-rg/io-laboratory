@@ -462,12 +462,45 @@ export function HomePage() {
 
           {/* Formula Display */}
           <p className="text-sm text-gray-600 mb-4 font-mono bg-gray-50 p-2 rounded">
-            {demandFunctionType === 'linear' && (gamma < 1
-              ? `p_i = a - b×(q_i + ${gamma.toFixed(2)}×Σq_j)`
-              : 'P(Q) = a - b × Q')}
-            {demandFunctionType === 'ces' && 'P(Q) = A × Q^(-1/σ)'}
-            {demandFunctionType === 'logit' && 'P(Q) = a - b × ln(Q)'}
-            {demandFunctionType === 'exponential' && 'P(Q) = A × e^(-bQ)'}
+            {competitionMode === 'bertrand' ? (
+              <>
+                {demandFunctionType === 'linear' && (gamma < 1
+                  ? (() => {
+                      const aCoeff = (1 - gamma);
+                      const ownCoeff = 1 + (numFirms - 2) * gamma;
+                      const crossCoeff = gamma;
+                      const denomCoeff = (1 - gamma) * (1 + (numFirms - 1) * gamma);
+                      const pOwn = Math.abs(ownCoeff - 1) < 0.001 ? 'p_i' : `${ownCoeff.toFixed(2)}×p_i`;
+                      const pOther = numFirms === 2 ? `${crossCoeff.toFixed(2)}×p_j` : `${crossCoeff.toFixed(2)}×Σp_j`;
+                      return `q_i = (${aCoeff.toFixed(2)}×a - ${pOwn} + ${pOther}) / (${denomCoeff.toFixed(2)}×b)`;
+                    })()
+                  : 'Q(P) = (a - P) / b')}
+                {demandFunctionType === 'ces' && (gamma < 1
+                  ? `q_i + ${gamma.toFixed(2)}×Σq_j = (p_i / A)^(-σ)`
+                  : 'Q(P) = (P / A)^(-σ)')}
+                {demandFunctionType === 'logit' && (gamma < 1
+                  ? `q_i + ${gamma.toFixed(2)}×Σq_j = e^((a - p_i) / b)`
+                  : 'Q(P) = e^((a - P) / b)')}
+                {demandFunctionType === 'exponential' && (gamma < 1
+                  ? `q_i + ${gamma.toFixed(2)}×Σq_j = ln(A / p_i) / b`
+                  : 'Q(P) = ln(A / P) / b')}
+              </>
+            ) : (
+              <>
+                {demandFunctionType === 'linear' && (gamma < 1
+                  ? `p_i = a - b×(q_i + ${gamma.toFixed(2)}×Σq_j)`
+                  : 'P(Q) = a - b × Q')}
+                {demandFunctionType === 'ces' && (gamma < 1
+                  ? `p_i = A × (q_i + ${gamma.toFixed(2)}×Σq_j)^(-1/σ)`
+                  : 'P(Q) = A × Q^(-1/σ)')}
+                {demandFunctionType === 'logit' && (gamma < 1
+                  ? `p_i = a - b × ln(q_i + ${gamma.toFixed(2)}×Σq_j)`
+                  : 'P(Q) = a - b × ln(Q)')}
+                {demandFunctionType === 'exponential' && (gamma < 1
+                  ? `p_i = A × e^(-b×(q_i + ${gamma.toFixed(2)}×Σq_j))`
+                  : 'P(Q) = A × e^(-bQ)')}
+              </>
+            )}
           </p>
 
           {/* Per-Firm Demand Toggle */}

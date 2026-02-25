@@ -205,35 +205,78 @@ export class LLMService {
     // Demand function (if revealed)
     if (info.revealDemandFunction) {
       if (demandType === 'ces') {
-        // CES demand: P = A * Q^(-1/σ)
         prompt += `- Demand follows CES (Constant Elasticity of Substitution) form\n`;
         prompt += `- Substitution elasticity: σ = ${demandSubstitutionElasticity.toFixed(2)}\n`;
-        prompt += `- Market price function: P = ${demandScale.toFixed(2)} × Q^(-1/${demandSubstitutionElasticity.toFixed(2)})\n`;
-        if (gamma < 1) {
-          prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)})\n`;
+        if (isBertrand) {
+          if (gamma < 1) {
+            prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your demand depends on your price and competitors' prices.\n`;
+            prompt += `- Your effective demand: q_you + ${gamma.toFixed(2)} × sum_of_others_q = (your_price / ${demandScale.toFixed(2)})^(-${demandSubstitutionElasticity.toFixed(2)})\n`;
+            prompt += `- Lower prices lead to higher demand for your product\n`;
+          } else {
+            prompt += `- Products are homogeneous. Market demand: Q = (P / ${demandScale.toFixed(2)})^(-${demandSubstitutionElasticity.toFixed(2)})\n`;
+            prompt += '- The firm with the lowest price captures most/all of the market.\n';
+          }
+        } else {
+          if (gamma < 1) {
+            prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your price depends on your quantity and competitors' quantities.\n`;
+            prompt += `- Your price: p = ${demandScale.toFixed(2)} × (your_q + ${gamma.toFixed(2)} × sum_of_others_q)^(-1/${demandSubstitutionElasticity.toFixed(2)})\n`;
+          } else {
+            prompt += `- Market price function: P = ${demandScale.toFixed(2)} × Q^(-1/${demandSubstitutionElasticity.toFixed(2)})\n`;
+          }
         }
       } else if (demandType === 'logit') {
-        // Logit demand: P = a - b * ln(Q)
         prompt += `- Demand follows a logit-like form with logarithmic price sensitivity\n`;
-        prompt += `- Market price function: P = ${demandIntercept} - ${demandPriceCoefficient.toFixed(2)} × ln(Q)\n`;
-        prompt += `- Price decreases logarithmically as quantity increases\n`;
-        if (gamma < 1) {
-          prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)})\n`;
+        if (isBertrand) {
+          if (gamma < 1) {
+            prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your demand depends on your price and competitors' prices.\n`;
+            prompt += `- Your effective demand: q_you + ${gamma.toFixed(2)} × sum_of_others_q = e^((${demandIntercept} - your_price) / ${demandPriceCoefficient.toFixed(2)})\n`;
+            prompt += `- Lower prices lead to higher demand for your product\n`;
+          } else {
+            prompt += `- Products are homogeneous. Market demand: Q = e^((${demandIntercept} - P) / ${demandPriceCoefficient.toFixed(2)})\n`;
+            prompt += '- The firm with the lowest price captures most/all of the market.\n';
+          }
+        } else {
+          if (gamma < 1) {
+            prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your price depends on your quantity and competitors' quantities.\n`;
+            prompt += `- Your price: p = ${demandIntercept} - ${demandPriceCoefficient.toFixed(2)} × ln(your_q + ${gamma.toFixed(2)} × sum_of_others_q)\n`;
+          } else {
+            prompt += `- Market price function: P = ${demandIntercept} - ${demandPriceCoefficient.toFixed(2)} × ln(Q)\n`;
+            prompt += `- Price decreases logarithmically as quantity increases\n`;
+          }
         }
       } else if (demandType === 'exponential') {
-        // Exponential demand: P = A * e^(-bQ)
         prompt += `- Demand follows an exponential decay form\n`;
-        prompt += `- Market price function: P = ${demandScale.toFixed(2)} × e^(-${demandDecayRate.toFixed(4)} × Q)\n`;
-        prompt += `- Price decays exponentially as quantity increases\n`;
-        if (gamma < 1) {
-          prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)})\n`;
+        if (isBertrand) {
+          if (gamma < 1) {
+            prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your demand depends on your price and competitors' prices.\n`;
+            prompt += `- Your effective demand: q_you + ${gamma.toFixed(2)} × sum_of_others_q = ln(${demandScale.toFixed(2)} / your_price) / ${demandDecayRate.toFixed(4)}\n`;
+            prompt += `- Lower prices lead to higher demand for your product\n`;
+          } else {
+            prompt += `- Products are homogeneous. Market demand: Q = ln(${demandScale.toFixed(2)} / P) / ${demandDecayRate.toFixed(4)}\n`;
+            prompt += '- The firm with the lowest price captures most/all of the market.\n';
+          }
+        } else {
+          if (gamma < 1) {
+            prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your price depends on your quantity and competitors' quantities.\n`;
+            prompt += `- Your price: p = ${demandScale.toFixed(2)} × e^(-${demandDecayRate.toFixed(4)} × (your_q + ${gamma.toFixed(2)} × sum_of_others_q))\n`;
+          } else {
+            prompt += `- Market price function: P = ${demandScale.toFixed(2)} × e^(-${demandDecayRate.toFixed(4)} × Q)\n`;
+            prompt += `- Price decays exponentially as quantity increases\n`;
+          }
         }
       } else {
         // Linear demand (default)
         if (isBertrand) {
           if (gamma < 1) {
+            // Exact Singh & Vives direct demand: q_i = [a(1-γ) - (1+(n-2)γ)p_i + γΣp_j] / [b(1-γ)(1+(n-1)γ)]
+            const aCoeff = (demandIntercept * (1 - gamma)).toFixed(2);
+            const ownCoeff = 1 + (numFirms - 2) * gamma;
+            const crossCoeff = gamma.toFixed(2);
+            const denomCoeff = (demandSlope * (1 - gamma) * (1 + (numFirms - 1) * gamma)).toFixed(2);
+            const ownStr = Math.abs(ownCoeff - 1) < 0.001 ? 'your_price' : `${ownCoeff.toFixed(2)} × your_price`;
+            const othersStr = numFirms === 2 ? `${crossCoeff} × rival_price` : `${crossCoeff} × sum_of_others_prices`;
             prompt += `- Products are differentiated (γ = ${gamma.toFixed(2)}). Your demand depends on your price and competitors' prices.\n`;
-            prompt += `- Base demand: approximately q = (${demandIntercept} - your_price + ${gamma.toFixed(2)} × avg_competitor_price_diff) / ${demandSlope}\n`;
+            prompt += `- Your demand: q = (${aCoeff} - ${ownStr} + ${othersStr}) / ${denomCoeff}\n`;
           } else {
             prompt += `- Products are homogeneous. Market demand: Q = (${demandIntercept} - P) / ${demandSlope}\n`;
             prompt += '- The firm with the lowest price captures most/all of the market.\n';

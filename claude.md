@@ -117,36 +117,51 @@ q_i = (1/(1-γ²)) * [α - p_i - γ(α - p_j)]
 
 ### Demanda CES (Constant Elasticity of Substitution)
 
-**Precio de mercado:**
+**Demanda inversa (Cournot):**
 ```
-P = A × Q^(-1/σ)
+p_i = A × (q_i + γΣq_j)^(-1/σ)     [diferenciado]
+P(Q) = A × Q^(-1/σ)                 [homogéneo]
+```
+**Demanda directa (Bertrand):**
+```
+q_i + γΣq_j = (p_i / A)^(-σ)       [diferenciado, sistema implícito]
+Q(P) = (P / A)^(-σ)                 [homogéneo]
 ```
 Donde:
 - A: Parámetro de escala
 - σ: Elasticidad de sustitución (σ > 1 = sustitutos, σ < 1 = complementos)
-- Q: Cantidad total de mercado
 
 ### Demanda Logit
 
-**Precio de mercado:**
+**Demanda inversa (Cournot):**
 ```
-P = a - b × ln(Q)
+p_i = a - b × ln(q_i + γΣq_j)      [diferenciado]
+P(Q) = a - b × ln(Q)                [homogéneo]
+```
+**Demanda directa (Bertrand):**
+```
+q_i + γΣq_j = e^((a - p_i) / b)    [diferenciado, sistema implícito]
+Q(P) = e^((a - P) / b)              [homogéneo]
 ```
 Donde:
 - a: Intercepto (precio base cuando Q=1)
 - b: Coeficiente de precio (sensibilidad logarítmica)
-- Q: Cantidad total de mercado
 
 ### Demanda Exponencial
 
-**Precio de mercado:**
+**Demanda inversa (Cournot):**
 ```
-P = A × e^(-bQ)
+p_i = A × e^(-b(q_i + γΣq_j))      [diferenciado]
+P(Q) = A × e^(-bQ)                  [homogéneo]
+```
+**Demanda directa (Bertrand):**
+```
+q_i + γΣq_j = ln(A / p_i) / b      [diferenciado, sistema implícito]
+Q(P) = ln(A / P) / b                [homogéneo]
 ```
 Donde:
 - A: Parámetro de escala (precio máximo en Q=0)
 - b: Tasa de decaimiento
-- Q: Cantidad total de mercado
 
 > **Nota**: El equilibrio Nash solo tiene solución analítica cerrada para demanda lineal. Para isoelástica, CES, logit y exponencial se muestra "N/A" en la interfaz.
 
@@ -678,6 +693,13 @@ Esta fórmula se usa en dos lugares de `EconomicsService.ts`:
 - La fórmula Singh & Vives tiene denominador 0 cuando γ=1 (b*(1-γ)*(1+(n-1)γ) = 0)
 - `calculateNPolyRoundResult` maneja esto con caso especial: firma(s) con precio mínimo capturan toda la demanda (a - p_min)/b, repartida igualmente si hay empate; resto obtiene q=0
 - El equilibrio Nash (`calculateNashBertrandNFirms`) usa la misma lógica separada para γ≥0.9999
+
+**Visualización de demanda en UI y prompts (Cournot vs Bertrand):**
+- **Cournot**: la fórmula del card y el prompt muestran demanda inversa (P como función de Q): `p_i = a - b×(q_i + γΣq_j)`
+- **Bertrand**: la fórmula del card y el prompt muestran demanda directa (Q como función de P): `q_i = [a(1-γ) - (1+(n-2)γ)p_i + γΣp_j] / [b(1-γ)(1+(n-1)γ)]`
+- Para demandas no lineales en Bertrand diferenciado: se muestra la relación de cantidad efectiva (sistema implícito)
+- Para demandas no lineales en Cournot diferenciado: se muestra la demanda inversa per-firm con `Q_eff = q_i + γΣq_j`
+- Tres lugares sincronizados: `HomePage.tsx` (formula card), `AdvancedSettings.tsx` (prompt preview), `LLMService.ts` (prompt real)
 
 **Fórmula de beneficio en prompt Bertrand:**
 - El prompt muestra `Your profit = (Your Price × Your Sales Quantity) - Your Cost` (genérico, correcto con costes cuadráticos)
