@@ -994,13 +994,28 @@ export class EconomicsService {
         if (demand.type === 'linear') {
           const a = demand.intercept ?? config.demandIntercept;
           const b = demand.slope ?? config.demandSlope;
-          // Singh & Vives (1984) direct demand for n firms:
-          // q_i = [a*(1-γ) - p_i*(1+(n-2)γ) + γ*Σ_{j≠i} p_j] / [b*(1-γ)*(1+(n-1)γ)]
-          const kappa = 1 + (numFirms - 2) * gamma;           // 1+(n-2)γ
-          const demandDenominator = b * (1 - gamma) * (1 + (numFirms - 1) * gamma);
-          q_i = demandDenominator > 1e-10
-            ? Math.max(0, (a * (1 - gamma) - p_i * kappa + gamma * otherPricesSum) / demandDenominator)
-            : 0;
+
+          if (gamma >= 0.9999) {
+            // Homogeneous Bertrand (γ≈1): lowest-price firm(s) get all demand
+            // Singh & Vives formula has zero denominator when γ=1
+            const minPrice = Math.min(...prices.filter((p): p is number => p != null));
+            if (Math.abs(p_i - minPrice) < 1e-6) {
+              // Count firms tied at the minimum price
+              const numTied = prices.filter((p): p is number => p != null && Math.abs(p - minPrice) < 1e-6).length;
+              const totalQ = Math.max(0, (a - minPrice) / b);
+              q_i = totalQ / numTied;
+            } else {
+              q_i = 0;  // Higher-priced firms get zero demand
+            }
+          } else {
+            // Singh & Vives (1984) direct demand for n firms:
+            // q_i = [a*(1-γ) - p_i*(1+(n-2)γ) + γ*Σ_{j≠i} p_j] / [b*(1-γ)*(1+(n-1)γ)]
+            const kappa = 1 + (numFirms - 2) * gamma;           // 1+(n-2)γ
+            const demandDenominator = b * (1 - gamma) * (1 + (numFirms - 1) * gamma);
+            q_i = demandDenominator > 1e-10
+              ? Math.max(0, (a * (1 - gamma) - p_i * kappa + gamma * otherPricesSum) / demandDenominator)
+              : 0;
+          }
         } else {
           // CES: P = A * Q^(-1/σ), so Q = (P/A)^(-σ)
           const A = demand.scale ?? 100;

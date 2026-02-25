@@ -270,7 +270,7 @@ export class LLMService {
     }
 
     if (isBertrand) {
-      prompt += '- Your profit = (Your Price - Marginal Cost) × Your Sales Quantity\n\n';
+      prompt += '- Your profit = (Your Price × Your Sales Quantity) - Your Cost\n\n';
     } else {
       prompt += '- Your profit = (Market Price × Your Quantity) - Your Cost\n\n';
     }

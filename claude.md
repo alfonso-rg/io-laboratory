@@ -631,6 +631,15 @@ Esta fórmula se usa en dos lugares de `EconomicsService.ts`:
 - Con d_i > 0: la FOC produce un sistema no lineal → devuelve `calculable: false`
 - Con γ = 1 (homogéneo) y d_i = 0: precio = min(c_i), q_total = (a - p)/b
 
+**Bertrand homogéneo (γ≈1) en cálculo de ronda:**
+- La fórmula Singh & Vives tiene denominador 0 cuando γ=1 (b*(1-γ)*(1+(n-1)γ) = 0)
+- `calculateNPolyRoundResult` maneja esto con caso especial: firma(s) con precio mínimo capturan toda la demanda (a - p_min)/b, repartida igualmente si hay empate; resto obtiene q=0
+- El equilibrio Nash (`calculateNashBertrandNFirms`) usa la misma lógica separada para γ≥0.9999
+
+**Fórmula de beneficio en prompt Bertrand:**
+- El prompt muestra `Your profit = (Your Price × Your Sales Quantity) - Your Cost` (genérico, correcto con costes cuadráticos)
+- La fórmula Cournot: `Your profit = (Market Price × Your Quantity) - Your Cost`
+
 ### Resumen de Réplicas (N firmas)
 `ReplicationResult.summary` contiene:
 - Campos legacy `totalFirm1Profit`, `avgFirm1Quantity`, etc. (siempre presentes, solo firmas 1 y 2)
