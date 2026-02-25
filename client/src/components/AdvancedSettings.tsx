@@ -5,6 +5,7 @@ import {
   ParameterSpec,
   DistributionType,
   ParameterVariation,
+  FirmDemandSpec,
   FIRM_COLORS,
   getNumFirms,
   getGamma,
@@ -64,6 +65,15 @@ function generateDefaultPrompt(config: CournotConfig, firmNumber: number): strin
   } else {
     demandInterceptStr = String(config.demandIntercept);
     demandSlopeStr = String(config.demandSlope);
+  }
+
+  // Per-firm demand override (if enabled)
+  if (config.usePerFirmDemand && config.firmDemandSpecs?.[firmNumber - 1]) {
+    const firmDemandSpec = config.firmDemandSpecs[firmNumber - 1];
+    if (demandFunction?.type === 'linear' || !demandFunction) {
+      if (firmDemandSpec.intercept) demandInterceptStr = specToPreviewString(firmDemandSpec.intercept, config.demandIntercept);
+      if (firmDemandSpec.slope) demandSlopeStr = specToPreviewString(firmDemandSpec.slope, config.demandSlope);
+    }
   }
 
   const isBertrand = mode === 'bertrand';
@@ -495,88 +505,274 @@ export function AdvancedSettings({ config, setConfig, disabled }: AdvancedSettin
             {/* Demand Parameters */}
             <div className="border rounded-lg p-4 bg-gray-50">
               <h3 className="font-semibold mb-3">Demand Parameters</h3>
-              {demandType === 'linear' ? (
-                <>
-                  <ParameterInput
-                    label="Intercept (a)"
-                    spec={config.demandFunction?.type === 'linear'
-                      ? config.demandFunction.intercept
-                      : fixedParam(config.demandIntercept)}
-                    onChange={(newSpec) => {
-                      setConfig({
-                        demandFunction: {
-                          type: 'linear',
-                          intercept: newSpec,
-                          slope: config.demandFunction?.type === 'linear'
-                            ? config.demandFunction.slope
-                            : fixedParam(config.demandSlope),
-                        },
-                        demandIntercept: newSpec.type === 'fixed' ? (newSpec.value ?? 100) : config.demandIntercept,
-                      });
-                    }}
-                    disabled={disabled}
-                  />
-                  <ParameterInput
-                    label="Slope (b)"
-                    spec={config.demandFunction?.type === 'linear'
-                      ? config.demandFunction.slope
-                      : fixedParam(config.demandSlope)}
-                    onChange={(newSpec) => {
-                      setConfig({
-                        demandFunction: {
-                          type: 'linear',
-                          intercept: config.demandFunction?.type === 'linear'
-                            ? config.demandFunction.intercept
-                            : fixedParam(config.demandIntercept),
-                          slope: newSpec,
-                        },
-                        demandSlope: newSpec.type === 'fixed' ? (newSpec.value ?? 1) : config.demandSlope,
-                      });
-                    }}
-                    disabled={disabled}
-                    min={0.01}
-                  />
-                </>
+              {config.usePerFirmDemand ? (
+                <div className="space-y-4">
+                  <p className="text-xs text-gray-500 mb-2">Per-firm demand randomization (each firm has independent parameters)</p>
+                  {Array.from({ length: numFirms }, (_, i) => {
+                    const firmId = i + 1;
+                    const firmColor = FIRM_COLORS[i];
+                    const firmDemandSpec: FirmDemandSpec = config.firmDemandSpecs?.[i] ?? {};
+
+                    const updateFirmDemandSpec = (param: string, newSpec: ParameterSpec) => {
+                      const newFirmDemandSpecs = [...(config.firmDemandSpecs ?? [])];
+                      while (newFirmDemandSpecs.length < numFirms) {
+                        newFirmDemandSpecs.push({});
+                      }
+                      newFirmDemandSpecs[i] = { ...newFirmDemandSpecs[i], [param]: newSpec };
+                      setConfig({ firmDemandSpecs: newFirmDemandSpecs });
+                    };
+
+                    return (
+                      <div key={firmId} className="border-l-4 pl-3" style={{ borderColor: firmColor }}>
+                        <h4 className="font-medium text-sm mb-2" style={{ color: firmColor }}>
+                          Firm {firmId}
+                        </h4>
+                        {demandType === 'linear' && (
+                          <>
+                            <ParameterInput
+                              label="Intercept (a)"
+                              spec={firmDemandSpec.intercept ?? (config.demandFunction?.type === 'linear' ? config.demandFunction.intercept : fixedParam(config.demandIntercept))}
+                              onChange={(s) => updateFirmDemandSpec('intercept', s)}
+                              disabled={disabled}
+                            />
+                            <ParameterInput
+                              label="Slope (b)"
+                              spec={firmDemandSpec.slope ?? (config.demandFunction?.type === 'linear' ? config.demandFunction.slope : fixedParam(config.demandSlope))}
+                              onChange={(s) => updateFirmDemandSpec('slope', s)}
+                              disabled={disabled}
+                              min={0.01}
+                            />
+                          </>
+                        )}
+                        {demandType === 'ces' && (
+                          <>
+                            <ParameterInput
+                              label="Scale (A)"
+                              spec={firmDemandSpec.scale ?? (config.demandFunction?.type === 'ces' ? config.demandFunction.scale : fixedParam(100))}
+                              onChange={(s) => updateFirmDemandSpec('scale', s)}
+                              disabled={disabled}
+                              min={0.01}
+                            />
+                            <ParameterInput
+                              label="Subst. Elast. (σ)"
+                              spec={firmDemandSpec.substitutionElasticity ?? (config.demandFunction?.type === 'ces' ? config.demandFunction.substitutionElasticity : fixedParam(2))}
+                              onChange={(s) => updateFirmDemandSpec('substitutionElasticity', s)}
+                              disabled={disabled}
+                              min={0.1}
+                            />
+                          </>
+                        )}
+                        {demandType === 'logit' && (
+                          <>
+                            <ParameterInput
+                              label="Intercept (a)"
+                              spec={firmDemandSpec.intercept ?? (config.demandFunction?.type === 'logit' ? config.demandFunction.intercept : fixedParam(100))}
+                              onChange={(s) => updateFirmDemandSpec('intercept', s)}
+                              disabled={disabled}
+                            />
+                            <ParameterInput
+                              label="Price Coeff. (b)"
+                              spec={firmDemandSpec.priceCoefficient ?? (config.demandFunction?.type === 'logit' ? config.demandFunction.priceCoefficient : fixedParam(10))}
+                              onChange={(s) => updateFirmDemandSpec('priceCoefficient', s)}
+                              disabled={disabled}
+                              min={0.1}
+                            />
+                          </>
+                        )}
+                        {demandType === 'exponential' && (
+                          <>
+                            <ParameterInput
+                              label="Scale (A)"
+                              spec={firmDemandSpec.scale ?? (config.demandFunction?.type === 'exponential' ? config.demandFunction.scale : fixedParam(100))}
+                              onChange={(s) => updateFirmDemandSpec('scale', s)}
+                              disabled={disabled}
+                              min={0.01}
+                            />
+                            <ParameterInput
+                              label="Decay Rate (b)"
+                              spec={firmDemandSpec.decayRate ?? (config.demandFunction?.type === 'exponential' ? config.demandFunction.decayRate : fixedParam(0.01))}
+                              onChange={(s) => updateFirmDemandSpec('decayRate', s)}
+                              disabled={disabled}
+                              min={0.001}
+                              step={0.001}
+                            />
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
                 <>
-                  <ParameterInput
-                    label="Scale (A)"
-                    spec={config.demandFunction?.type === 'ces'
-                      ? config.demandFunction.scale
-                      : fixedParam(100)}
-                    onChange={(newSpec) => {
-                      setConfig({
-                        demandFunction: {
-                          type: 'ces',
-                          scale: newSpec,
-                          substitutionElasticity: config.demandFunction?.type === 'ces'
-                            ? config.demandFunction.substitutionElasticity
-                            : fixedParam(2),
-                        },
-                      });
-                    }}
-                    disabled={disabled}
-                    min={0.01}
-                  />
-                  <ParameterInput
-                    label="Substitution Elasticity (σ)"
-                    spec={config.demandFunction?.type === 'ces'
-                      ? config.demandFunction.substitutionElasticity
-                      : fixedParam(2)}
-                    onChange={(newSpec) => {
-                      setConfig({
-                        demandFunction: {
-                          type: 'ces',
-                          scale: config.demandFunction?.type === 'ces'
-                            ? config.demandFunction.scale
-                            : fixedParam(100),
-                          substitutionElasticity: newSpec,
-                        },
-                      });
-                    }}
-                    disabled={disabled}
-                    min={0.1}
-                  />
+                  {demandType === 'linear' && (
+                    <>
+                      <ParameterInput
+                        label="Intercept (a)"
+                        spec={config.demandFunction?.type === 'linear'
+                          ? config.demandFunction.intercept
+                          : fixedParam(config.demandIntercept)}
+                        onChange={(newSpec) => {
+                          setConfig({
+                            demandFunction: {
+                              type: 'linear',
+                              intercept: newSpec,
+                              slope: config.demandFunction?.type === 'linear'
+                                ? config.demandFunction.slope
+                                : fixedParam(config.demandSlope),
+                            },
+                            demandIntercept: newSpec.type === 'fixed' ? (newSpec.value ?? 100) : config.demandIntercept,
+                          });
+                        }}
+                        disabled={disabled}
+                      />
+                      <ParameterInput
+                        label="Slope (b)"
+                        spec={config.demandFunction?.type === 'linear'
+                          ? config.demandFunction.slope
+                          : fixedParam(config.demandSlope)}
+                        onChange={(newSpec) => {
+                          setConfig({
+                            demandFunction: {
+                              type: 'linear',
+                              intercept: config.demandFunction?.type === 'linear'
+                                ? config.demandFunction.intercept
+                                : fixedParam(config.demandIntercept),
+                              slope: newSpec,
+                            },
+                            demandSlope: newSpec.type === 'fixed' ? (newSpec.value ?? 1) : config.demandSlope,
+                          });
+                        }}
+                        disabled={disabled}
+                        min={0.01}
+                      />
+                    </>
+                  )}
+                  {demandType === 'ces' && (
+                    <>
+                      <ParameterInput
+                        label="Scale (A)"
+                        spec={config.demandFunction?.type === 'ces'
+                          ? config.demandFunction.scale
+                          : fixedParam(100)}
+                        onChange={(newSpec) => {
+                          setConfig({
+                            demandFunction: {
+                              type: 'ces',
+                              scale: newSpec,
+                              substitutionElasticity: config.demandFunction?.type === 'ces'
+                                ? config.demandFunction.substitutionElasticity
+                                : fixedParam(2),
+                            },
+                          });
+                        }}
+                        disabled={disabled}
+                        min={0.01}
+                      />
+                      <ParameterInput
+                        label="Substitution Elasticity (σ)"
+                        spec={config.demandFunction?.type === 'ces'
+                          ? config.demandFunction.substitutionElasticity
+                          : fixedParam(2)}
+                        onChange={(newSpec) => {
+                          setConfig({
+                            demandFunction: {
+                              type: 'ces',
+                              scale: config.demandFunction?.type === 'ces'
+                                ? config.demandFunction.scale
+                                : fixedParam(100),
+                              substitutionElasticity: newSpec,
+                            },
+                          });
+                        }}
+                        disabled={disabled}
+                        min={0.1}
+                      />
+                    </>
+                  )}
+                  {demandType === 'logit' && (
+                    <>
+                      <ParameterInput
+                        label="Intercept (a)"
+                        spec={config.demandFunction?.type === 'logit'
+                          ? config.demandFunction.intercept
+                          : fixedParam(100)}
+                        onChange={(newSpec) => {
+                          setConfig({
+                            demandFunction: {
+                              type: 'logit',
+                              intercept: newSpec,
+                              priceCoefficient: config.demandFunction?.type === 'logit'
+                                ? config.demandFunction.priceCoefficient
+                                : fixedParam(10),
+                            },
+                          });
+                        }}
+                        disabled={disabled}
+                      />
+                      <ParameterInput
+                        label="Price Coefficient (b)"
+                        spec={config.demandFunction?.type === 'logit'
+                          ? config.demandFunction.priceCoefficient
+                          : fixedParam(10)}
+                        onChange={(newSpec) => {
+                          setConfig({
+                            demandFunction: {
+                              type: 'logit',
+                              intercept: config.demandFunction?.type === 'logit'
+                                ? config.demandFunction.intercept
+                                : fixedParam(100),
+                              priceCoefficient: newSpec,
+                            },
+                          });
+                        }}
+                        disabled={disabled}
+                        min={0.1}
+                      />
+                    </>
+                  )}
+                  {demandType === 'exponential' && (
+                    <>
+                      <ParameterInput
+                        label="Scale (A)"
+                        spec={config.demandFunction?.type === 'exponential'
+                          ? config.demandFunction.scale
+                          : fixedParam(100)}
+                        onChange={(newSpec) => {
+                          setConfig({
+                            demandFunction: {
+                              type: 'exponential',
+                              scale: newSpec,
+                              decayRate: config.demandFunction?.type === 'exponential'
+                                ? config.demandFunction.decayRate
+                                : fixedParam(0.01),
+                            },
+                          });
+                        }}
+                        disabled={disabled}
+                        min={0.01}
+                      />
+                      <ParameterInput
+                        label="Decay Rate (b)"
+                        spec={config.demandFunction?.type === 'exponential'
+                          ? config.demandFunction.decayRate
+                          : fixedParam(0.01)}
+                        onChange={(newSpec) => {
+                          setConfig({
+                            demandFunction: {
+                              type: 'exponential',
+                              scale: config.demandFunction?.type === 'exponential'
+                                ? config.demandFunction.scale
+                                : fixedParam(100),
+                              decayRate: newSpec,
+                            },
+                          });
+                        }}
+                        disabled={disabled}
+                        min={0.001}
+                        step={0.001}
+                      />
+                    </>
+                  )}
                 </>
               )}
             </div>

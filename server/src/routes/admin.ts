@@ -248,6 +248,22 @@ router.get('/games/:gameId/export', async (req: Request, res: Response) => {
         }
       }
 
+      // Add per-firm demand columns (when usePerFirmDemand is enabled)
+      if (game.config.usePerFirmDemand) {
+        const dt = game.config.demandFunction?.type || 'linear';
+        for (let i = 1; i <= numFirms; i++) {
+          if (dt === 'linear') {
+            headers.push(`Firm${i}_DemandIntercept`, `Firm${i}_DemandSlope`);
+          } else if (dt === 'ces') {
+            headers.push(`Firm${i}_DemandScale`, `Firm${i}_DemandSubstElast`);
+          } else if (dt === 'logit') {
+            headers.push(`Firm${i}_DemandIntercept`, `Firm${i}_DemandPriceCoeff`);
+          } else if (dt === 'exponential') {
+            headers.push(`Firm${i}_DemandScale`, `Firm${i}_DemandDecayRate`);
+          }
+        }
+      }
+
       // Add communication column if requested
       if (includeChat) {
         headers.push('Communication');
@@ -311,6 +327,28 @@ router.get('/games/:gameId/export', async (req: Request, res: Response) => {
               const fc = rp?.firmCosts?.find(c => c.firmId === i);
               row.push(fc?.linearCost ?? '');
               row.push(fc?.quadraticCost ?? '');
+            }
+          }
+
+          // Add per-firm demand values
+          if (game.config.usePerFirmDemand) {
+            const rp = round.realizedParameters;
+            const dt = game.config.demandFunction?.type || 'linear';
+            for (let i = 1; i <= numFirms; i++) {
+              const fd = rp?.firmDemands?.find((d: { firmId: number }) => d.firmId === i);
+              if (dt === 'linear') {
+                row.push(fd?.intercept ?? '');
+                row.push(fd?.slope ?? '');
+              } else if (dt === 'ces') {
+                row.push(fd?.scale ?? '');
+                row.push(fd?.substitutionElasticity ?? '');
+              } else if (dt === 'logit') {
+                row.push(fd?.intercept ?? '');
+                row.push(fd?.priceCoefficient ?? '');
+              } else if (dt === 'exponential') {
+                row.push(fd?.scale ?? '');
+                row.push(fd?.decayRate ?? '');
+              }
             }
           }
 

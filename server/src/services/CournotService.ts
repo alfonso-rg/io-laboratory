@@ -66,14 +66,30 @@ export class CournotService {
     let bertrandEquilibrium;
     let limitPricingAnalysis;
 
+    // Extract per-firm demand fixed values for equilibrium calculation
+    let firmDemandsForEq: { firmId: number; intercept?: number; slope?: number }[] | undefined;
+    if (config.usePerFirmDemand && config.firmDemandSpecs) {
+      const demandType = config.demandFunction?.type || 'linear';
+      if (demandType === 'linear') {
+        firmDemandsForEq = config.firmDemandSpecs.map((spec, i) => ({
+          firmId: i + 1,
+          intercept: spec.intercept?.type === 'fixed' ? spec.intercept.value : undefined,
+          slope: spec.slope?.type === 'fixed' ? spec.slope.value : undefined,
+        }));
+        // If any per-firm demand spec is random, we'll note it
+        const hasRandomDemand = config.firmDemandSpecs.some(s =>
+          (s.intercept && s.intercept.type !== 'fixed') || (s.slope && s.slope.type !== 'fixed')
+        );
+        if (hasRandomDemand) {
+          logger.info('Per-firm demand has random specs; equilibrium uses fixed/default values');
+        }
+      }
+    }
+
     try {
-      // Calculate N-poly Cournot equilibrium
-      nPolyEquilibrium = EconomicsService.calculateNashCournotNFirms(config);
+      nPolyEquilibrium = EconomicsService.calculateNashCournotNFirms(config, firmDemandsForEq);
+      bertrandEquilibrium = EconomicsService.calculateNashBertrandNFirms(config, firmDemandsForEq);
 
-      // Calculate Bertrand equilibrium if using Bertrand mode or for comparison
-      bertrandEquilibrium = EconomicsService.calculateNashBertrandNFirms(config);
-
-      // Calculate limit-pricing analysis (only for duopoly)
       if (numFirms === 2) {
         limitPricingAnalysis = EconomicsService.analyzeLimitPricing(config);
       }

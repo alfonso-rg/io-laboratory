@@ -278,22 +278,35 @@ export function calculateNPolyCournotEquilibrium(config: CournotConfig): NPolyEq
   const { demandIntercept: a, demandSlope: b } = config;
   const gamma = getGamma(config);
 
+  // Helper to get per-firm demand values (or shared fallback)
+  const getFirmDemandValues = (firmIndex: number) => {
+    if (config.usePerFirmDemand && config.firmDemandSpecs?.[firmIndex]) {
+      const spec = config.firmDemandSpecs[firmIndex];
+      return {
+        intercept: spec.intercept?.value ?? a,
+        slope: spec.slope?.value ?? b,
+      };
+    }
+    return { intercept: a, slope: b };
+  };
+
   const A: number[][] = [];
   const B: number[] = [];
 
   for (let i = 0; i < numFirms; i++) {
     const firmConfig = getFirmConfig(config, i + 1);
+    const { intercept: a_i, slope: b_i } = getFirmDemandValues(i);
     const c_i = firmConfig.linearCost;
     const d_i = firmConfig.quadraticCost;
-    const alpha_i = a - c_i;
+    const alpha_i = a_i - c_i;
     B.push(alpha_i);
 
     const row: number[] = [];
     for (let j = 0; j < numFirms; j++) {
       if (i === j) {
-        row.push(2 * (b + d_i));
+        row.push(2 * (b_i + d_i));
       } else {
-        row.push(gamma * b);
+        row.push(gamma * b_i);
       }
     }
     A.push(row);
@@ -311,12 +324,13 @@ export function calculateNPolyCournotEquilibrium(config: CournotConfig): NPolyEq
   for (let i = 0; i < numFirms; i++) {
     const q_i = quantities[i];
     totalQuantity += q_i;
+    const { intercept: a_i, slope: b_i } = getFirmDemandValues(i);
 
     let otherQSum = 0;
     for (let j = 0; j < numFirms; j++) {
       if (j !== i) otherQSum += quantities[j];
     }
-    const price_i = Math.max(0, a - b * (q_i + gamma * otherQSum));
+    const price_i = Math.max(0, a_i - b_i * (q_i + gamma * otherQSum));
     marketPrices.push(price_i);
 
     const firmConfig = getFirmConfig(config, i + 1);

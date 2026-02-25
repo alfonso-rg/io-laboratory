@@ -9,7 +9,7 @@
 
 ## Resumen del Proyecto
 
-Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 firmas controladas por modelos GPT compiten eligiendo cantidades (Cournot) o precios (Bertrand) en un juego repetido. Permite configurar diferenciación de productos, información asimétrica, comunicación entre firmas, múltiples réplicas experimentales, parámetros aleatorios y funciones de demanda alternativas.
+Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 firmas controladas por modelos GPT compiten eligiendo cantidades (Cournot) o precios (Bertrand) en un juego repetido. Permite configurar diferenciación de productos, información asimétrica, comunicación entre firmas, múltiples réplicas experimentales, parámetros aleatorios, funciones de demanda alternativas y demanda heterogénea por firma.
 
 **URLs de producción:**
 - Frontend: https://io-laboratory.vercel.app
@@ -45,13 +45,22 @@ Laboratorio web para estudiar competencia oligopolística entre LLMs. De 2 a 10 
 
 > **Nota**: El equilibrio Nash solo se calcula analíticamente para demanda lineal. Para las demás funciones se muestra "N/A".
 
+### Demanda Heterogénea por Firma
+- **Opción avanzada**: Toggle "Per-firm demand parameters" en la tarjeta de demanda
+- **Por defecto desactivado**: Todas las firmas comparten la misma demanda (comportamiento actual)
+- **Cuando activado**: Cada firma tiene sus propios parámetros de demanda (a_i, b_i para lineal; A_i, σ_i para CES; etc.)
+- **Todas las firmas comparten el mismo TIPO de demanda** pero pueden tener parámetros diferentes
+- **Soporta randomización**: Cada parámetro de demanda por firma puede ser fijo o aleatorio (mismas distribuciones que los costes)
+- **Equilibrio Nash**: Calculado con sistema lineal usando a_i, b_i por firma (solo demanda lineal)
+- **CSV export**: Columnas `FirmX_DemandIntercept`, `FirmX_DemandSlope`, etc. cuando está activado
+
 ### Parámetros Aleatorios
 - **Distribuciones soportadas**: Fixed, Uniform, Normal, Log-normal
 - **Modos de variación**:
   - Fixed: Mismo valor en todas las rondas y réplicas
   - Per-replication: Se regeneran al inicio de cada réplica
   - Per-round: Se regeneran cada ronda
-- **Parámetros configurables**: Demanda (a, b o A, σ), gamma (γ), costes por firma (c, d)
+- **Parámetros configurables**: Demanda (a, b o A, σ), gamma (γ), costes por firma (c, d), demanda por firma (cuando heterogénea)
 
 ### Modelos LLM Disponibles
 
@@ -146,12 +155,23 @@ Donde:
 C_i(q_i) = c_i * q_i + d_i * q_i²
 ```
 
+### Demanda Heterogénea por Firma (opcional)
+
+Cuando `usePerFirmDemand` está activado, cada firma tiene sus propios parámetros de demanda:
+
+**Lineal**: `p_i = a_i - b_i*(q_i + γ*Σq_j)`
+**CES**: `p_i = A_i * (q_i + γ*Σq_j)^(-1/σ_i)`
+**Logit**: `p_i = a_i - b_i * ln(q_i + γ*Σq_j)`
+**Exponencial**: `p_i = A_i * e^(-b_i*(q_i + γ*Σq_j))`
+
+Todas las firmas comparten el mismo tipo de demanda pero pueden tener parámetros diferentes.
+
 ### Equilibrio Nash Cournot (N firmas)
 
 Sistema lineal resuelto por eliminación gaussiana:
 ```
-FOC: α_i - 2(b + d_i)q_i - γb*Σq_j = 0
-donde α_i = a - c_i
+FOC: α_i - 2(b_i + d_i)q_i - γ*b_i*Σq_j = 0
+donde α_i = a_i - c_i (con per-firm: a_i, b_i por firma; sin per-firm: a_i=a, b_i=b)
 ```
 
 ### Equilibrio Nash Bertrand (N firmas, diferenciado)
@@ -478,6 +498,25 @@ interface RealizedParameters {
     linearCost: number;
     quadraticCost: number;
   }[];
+  firmDemands?: {           // Per-firm demand values (when usePerFirmDemand)
+    firmId: number;
+    intercept?: number;
+    slope?: number;
+    scale?: number;
+    substitutionElasticity?: number;
+    priceCoefficient?: number;
+    decayRate?: number;
+  }[];
+}
+
+// Per-firm demand specification (heterogeneous demand)
+interface FirmDemandSpec {
+  intercept?: ParameterSpec;
+  slope?: ParameterSpec;
+  scale?: ParameterSpec;
+  substitutionElasticity?: ParameterSpec;
+  priceCoefficient?: ParameterSpec;
+  decayRate?: ParameterSpec;
 }
 
 // Config de firma individual
@@ -528,6 +567,10 @@ interface CournotConfig {
   gammaSpec?: ParameterSpec;
   firmCostSpecs?: { linearCost: ParameterSpec; quadraticCost: ParameterSpec }[];
   parameterVariation?: 'fixed' | 'per-replication' | 'per-round';
+
+  // Demanda heterogénea por firma
+  usePerFirmDemand?: boolean;
+  firmDemandSpecs?: FirmDemandSpec[];
 }
 
 // Resultado de firma individual por ronda
@@ -658,6 +701,7 @@ Esta fórmula se usa en dos lugares de `EconomicsService.ts`:
 - Si no se especifica `competitionMode`, se asume 'cournot'
 - Si no se especifica `demandFunction`, se asume demanda lineal con valores de `demandIntercept`/`demandSlope`
 - Si no se especifica `parameterVariation`, se asume 'fixed'
+- Si no se especifica `usePerFirmDemand`, se asume false (demanda compartida)
 - Los juegos antiguos en MongoDB siguen funcionando
 
 ## Próximas Mejoras Posibles
@@ -675,3 +719,4 @@ Esta fórmula se usa en dos lugares de `EconomicsService.ts`:
 - [x] ~~Google Gemini~~ ✓ Implementado (modelos gratuitos con rate limiting)
 - [x] ~~Más funciones de demanda~~ ✓ Implementado (CES, Logit, Exponencial)
 - [x] ~~Filtros y operaciones en lote en Admin Panel~~ ✓ Implementado (filtros, selección múltiple, eliminación/exportación en lote)
+- [x] ~~Demanda heterogénea por firma~~ ✓ Implementado (per-firm a_i, b_i para todas las funciones de demanda)

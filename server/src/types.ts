@@ -73,6 +73,16 @@ export interface RealizedParameters {
     linearCost: number;
     quadraticCost: number;
   }[];
+  // Per-firm realized demand (when usePerFirmDemand is true)
+  firmDemands?: {
+    firmId: number;
+    intercept?: number;
+    slope?: number;
+    scale?: number;
+    substitutionElasticity?: number;
+    priceCoefficient?: number;
+    decayRate?: number;
+  }[];
 }
 
 // When to regenerate random parameters
@@ -82,6 +92,21 @@ export type ParameterVariation = 'fixed' | 'per-replication' | 'per-round';
 export interface FirmCostSpec {
   linearCost: ParameterSpec;
   quadraticCost: ParameterSpec;
+}
+
+// Per-firm demand specifications for heterogeneous demand parameters
+// The demand type comes from the shared demandFunction.type — only relevant params need be set
+export interface FirmDemandSpec {
+  // Linear: a_i, b_i
+  intercept?: ParameterSpec;
+  slope?: ParameterSpec;
+  // CES: A_i, σ_i
+  scale?: ParameterSpec;
+  substitutionElasticity?: ParameterSpec;
+  // Logit: a_i, b_i
+  priceCoefficient?: ParameterSpec;
+  // Exponential: A_i, b_i
+  decayRate?: ParameterSpec;
 }
 
 // Helper to create a fixed parameter spec
@@ -216,6 +241,10 @@ export interface CournotConfig {
   gammaSpec?: ParameterSpec;
   firmCostSpecs?: FirmCostSpec[];
   parameterVariation?: ParameterVariation;
+
+  // Per-firm demand parameters (advanced option)
+  usePerFirmDemand?: boolean;         // false (default) = shared demand, true = per-firm
+  firmDemandSpecs?: FirmDemandSpec[]; // One entry per firm, indexed 0..numFirms-1
 }
 
 // Communication message between firms
@@ -529,4 +558,18 @@ export function getCompetitionMode(config: CournotConfig): CompetitionMode {
 // Get gamma (product differentiation) from config
 export function getGamma(config: CournotConfig): number {
   return config.gamma ?? 1;  // Default to homogeneous products
+}
+
+// Get firm-specific demand from realized params (or shared demand as fallback)
+export function getFirmDemand(
+  realizedParams: RealizedParameters,
+  firmId: number
+): RealizedParameters['demand'] {
+  if (realizedParams.firmDemands) {
+    const fd = realizedParams.firmDemands.find(d => d.firmId === firmId);
+    if (fd) {
+      return { type: realizedParams.demand.type, ...fd };
+    }
+  }
+  return realizedParams.demand;
 }

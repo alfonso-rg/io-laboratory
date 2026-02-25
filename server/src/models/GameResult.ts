@@ -34,6 +34,15 @@ const RealizedParametersSchema = new Schema({
     linearCost: { type: Number },
     quadraticCost: { type: Number },
   }],
+  firmDemands: [{
+    firmId: { type: Number },
+    intercept: { type: Number },
+    slope: { type: Number },
+    scale: { type: Number },
+    substitutionElasticity: { type: Number },
+    priceCoefficient: { type: Number },
+    decayRate: { type: Number },
+  }],
 }, { _id: false });
 
 // Linear demand config schema
@@ -47,6 +56,16 @@ const LinearDemandConfigSchema = new Schema({
 const FirmCostSpecSchema = new Schema({
   linearCost: { type: ParameterSpecSchema, required: true },
   quadraticCost: { type: ParameterSpecSchema, required: true },
+}, { _id: false });
+
+// Per-firm demand spec schema
+const FirmDemandSpecSchema = new Schema({
+  intercept: { type: ParameterSpecSchema },
+  slope: { type: ParameterSpecSchema },
+  scale: { type: ParameterSpecSchema },
+  substitutionElasticity: { type: ParameterSpecSchema },
+  priceCoefficient: { type: ParameterSpecSchema },
+  decayRate: { type: ParameterSpecSchema },
 }, { _id: false });
 
 // Communication message schema (updated for N firms)
@@ -181,6 +200,10 @@ const CournotConfigSchema = new Schema({
   gammaSpec: { type: ParameterSpecSchema },
   firmCostSpecs: { type: [FirmCostSpecSchema], default: [] },
   parameterVariation: { type: String, enum: ['fixed', 'per-replication', 'per-round'] },
+
+  // Per-firm demand parameters
+  usePerFirmDemand: { type: Boolean, default: false },
+  firmDemandSpecs: { type: [FirmDemandSpecSchema], default: [] },
 });
 
 const NashEquilibriumSchema = new Schema({

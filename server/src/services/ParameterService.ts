@@ -172,10 +172,68 @@ export class ParameterService {
       }
     }
 
+    // Realize per-firm demand parameters (if enabled)
+    let firmDemands: RealizedParameters['firmDemands'] | undefined;
+
+    if (config.usePerFirmDemand && config.firmDemandSpecs && config.firmDemandSpecs.length > 0) {
+      firmDemands = [];
+      const demandType = demand.type;
+
+      for (let i = 0; i < numFirms; i++) {
+        const firmId = i + 1;
+        const spec = config.firmDemandSpecs[i];
+
+        if (!spec) {
+          // No spec for this firm: use shared demand values as fallback
+          const { type: _t, ...sharedValues } = demand;
+          firmDemands.push({ firmId, ...sharedValues });
+          continue;
+        }
+
+        switch (demandType) {
+          case 'linear':
+            firmDemands.push({
+              firmId,
+              intercept: spec.intercept ? this.drawParameter(spec.intercept) : demand.intercept,
+              slope: spec.slope ? Math.max(0.01, this.drawParameter(spec.slope)) : demand.slope,
+            });
+            break;
+          case 'ces':
+            firmDemands.push({
+              firmId,
+              scale: spec.scale ? Math.max(0.01, this.drawParameter(spec.scale)) : demand.scale,
+              substitutionElasticity: spec.substitutionElasticity
+                ? Math.max(0.1, this.drawParameter(spec.substitutionElasticity))
+                : demand.substitutionElasticity,
+            });
+            break;
+          case 'logit':
+            firmDemands.push({
+              firmId,
+              intercept: spec.intercept ? this.drawParameter(spec.intercept) : demand.intercept,
+              priceCoefficient: spec.priceCoefficient
+                ? Math.max(0.1, this.drawParameter(spec.priceCoefficient))
+                : demand.priceCoefficient,
+            });
+            break;
+          case 'exponential':
+            firmDemands.push({
+              firmId,
+              scale: spec.scale ? Math.max(0.01, this.drawParameter(spec.scale)) : demand.scale,
+              decayRate: spec.decayRate
+                ? Math.max(0.001, this.drawParameter(spec.decayRate))
+                : demand.decayRate,
+            });
+            break;
+        }
+      }
+    }
+
     return {
       demand,
       gamma,
       firmCosts,
+      firmDemands,
     };
   }
 
@@ -213,6 +271,18 @@ export class ParameterService {
       for (const spec of config.firmCostSpecs) {
         if (spec.linearCost.type !== 'fixed') return true;
         if (spec.quadraticCost.type !== 'fixed') return true;
+      }
+    }
+
+    // Check per-firm demand specs
+    if (config.usePerFirmDemand && config.firmDemandSpecs) {
+      for (const spec of config.firmDemandSpecs) {
+        if (spec.intercept && spec.intercept.type !== 'fixed') return true;
+        if (spec.slope && spec.slope.type !== 'fixed') return true;
+        if (spec.scale && spec.scale.type !== 'fixed') return true;
+        if (spec.substitutionElasticity && spec.substitutionElasticity.type !== 'fixed') return true;
+        if (spec.priceCoefficient && spec.priceCoefficient.type !== 'fixed') return true;
+        if (spec.decayRate && spec.decayRate.type !== 'fixed') return true;
       }
     }
 

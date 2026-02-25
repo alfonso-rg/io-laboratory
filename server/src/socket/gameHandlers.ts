@@ -42,6 +42,21 @@ export function setupGameHandlers(
           return;
         }
 
+        // Validate per-firm demand specs if enabled
+        if (config.usePerFirmDemand && config.firmDemandSpecs) {
+          for (let i = 0; i < config.firmDemandSpecs.length; i++) {
+            const spec = config.firmDemandSpecs[i];
+            if (spec.slope?.type === 'fixed' && (spec.slope.value ?? 0) <= 0) {
+              socket.emit('error', `Firm ${i + 1} demand slope must be positive`);
+              return;
+            }
+            if (spec.scale?.type === 'fixed' && (spec.scale.value ?? 0) <= 0) {
+              socket.emit('error', `Firm ${i + 1} demand scale must be positive`);
+              return;
+            }
+          }
+        }
+
         const gameState = cournotService.createGame(config);
         io.emit('game-state', gameState);
 

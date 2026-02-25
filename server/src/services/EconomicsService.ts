@@ -13,6 +13,7 @@ import {
   getCompetitionMode,
   getFirmConfig,
   getDemandFunctionType,
+  getFirmDemand,
 } from '../types';
 
 export class EconomicsService {
@@ -519,7 +520,10 @@ export class EconomicsService {
    * Note: This method only works for linear demand. For CES demand,
    * returns an equilibrium with calculable=false.
    */
-  static calculateNashCournotNFirms(config: CournotConfig): NPolyEquilibrium {
+  static calculateNashCournotNFirms(
+    config: CournotConfig,
+    firmDemands?: { firmId: number; intercept?: number; slope?: number }[]
+  ): NPolyEquilibrium {
     const demandType = getDemandFunctionType(config);
     const numFirms = getNumFirms(config);
 
@@ -547,11 +551,13 @@ export class EconomicsService {
       };
     }
 
-    const { demandIntercept: a, demandSlope: b } = config;
+    const { demandIntercept: a_default, demandSlope: b_default } = config;
     const gamma = getGamma(config);
 
     // Build coefficient matrix A and vector B
-    const A: number[][] = [];
+    // With per-firm demand: p_i = a_i - b_i*(q_i + γ*Σq_j)
+    // FOC: (a_i - c_i) = 2*(b_i + d_i)*q_i + γ*b_i*Σq_j
+    const Amat: number[][] = [];
     const B: number[] = [];
 
     for (let i = 0; i < numFirms; i++) {
@@ -559,32 +565,31 @@ export class EconomicsService {
       const c_i = firmConfig.linearCost;
       const d_i = firmConfig.quadraticCost;
 
-      // α_i = a - c_i (effective demand intercept for firm i)
-      const alpha_i = a - c_i;
+      // Per-firm demand parameters (or shared fallback)
+      const fd = firmDemands?.find(d => d.firmId === i + 1);
+      const a_i = fd?.intercept ?? a_default;
+      const b_i = fd?.slope ?? b_default;
+
+      const alpha_i = a_i - c_i;
       B.push(alpha_i);
 
-      // Build row i of matrix A
       const row: number[] = [];
       for (let j = 0; j < numFirms; j++) {
         if (i === j) {
-          // Diagonal: 2(b + d_i)
-          row.push(2 * (b + d_i));
+          row.push(2 * (b_i + d_i));
         } else {
-          // Off-diagonal: γb
-          row.push(gamma * b);
+          row.push(gamma * b_i);
         }
       }
-      A.push(row);
+      Amat.push(row);
     }
 
-    // Solve the system
-    const solution = this.solveLinearSystem(A, B);
+    const solution = this.solveLinearSystem(Amat, B);
 
     if (!solution) {
       throw new Error('Could not solve N-firm Cournot equilibrium system');
     }
 
-    // Ensure non-negative quantities
     const quantities = solution.map(q => Math.max(0, q));
 
     // Calculate prices and profits for each firm
@@ -597,7 +602,17 @@ export class EconomicsService {
       const q_i = quantities[i];
       totalQuantity += q_i;
 
-      const price_i = this.calculateDifferentiatedPrice(i, quantities, config);
+      // Per-firm demand for price calculation
+      const fd = firmDemands?.find(d => d.firmId === i + 1);
+      const a_i = fd?.intercept ?? a_default;
+      const b_i = fd?.slope ?? b_default;
+
+      // p_i = a_i - b_i*(q_i + γ*Σq_j)
+      let otherQSum = 0;
+      for (let j = 0; j < numFirms; j++) {
+        if (j !== i) otherQSum += quantities[j];
+      }
+      const price_i = Math.max(0, a_i - b_i * (q_i + gamma * otherQSum));
       marketPrices.push(price_i);
 
       const firmConfig = getFirmConfig(config, i + 1);
@@ -636,7 +651,10 @@ export class EconomicsService {
    * Note: This method only works for linear demand. For CES demand,
    * returns an equilibrium with calculable=false.
    */
-  static calculateNashBertrandNFirms(config: CournotConfig): NPolyEquilibrium {
+  static calculateNashBertrandNFirms(
+    config: CournotConfig,
+    firmDemands?: { firmId: number; intercept?: number; slope?: number }[]
+  ): NPolyEquilibrium {
     const demandType = getDemandFunctionType(config);
     const numFirms = getNumFirms(config);
 
@@ -749,11 +767,124 @@ export class EconomicsService {
     }
 
     // Differentiated Bertrand: Build and solve the FOC system
-    // For firm i: p_i = (a(1-γ) + c_i*(1+(n-2)γ) + γΣp_j) / (2*(1+(n-2)γ))
-    // This forms a linear system in prices
+    // With per-firm demand p_i = a_i - b_i*(q_i + γ*Σq_j), the FOC gives a linear system in prices.
+    // Build M matrix (inverse demand coefficients): M[i][i]=b_i, M[i][j]=γ*b_i
+    // Then invert to get demand derivatives, and build FOC system.
 
-    const A: number[][] = [];
-    const B: number[] = [];
+    // For shared demand (all b_i equal), the simpler symmetric formula is used.
+    // For per-firm demand, we use the general matrix approach.
+
+    const usePerFirm = firmDemands && firmDemands.length > 0;
+
+    if (usePerFirm) {
+      // General per-firm Bertrand Nash via matrix inversion
+      // Inverse demand: P = A_vec - M*Q where M[i][i]=b_i, M[i][j]=γ*b_i
+      // Direct demand: Q = M^{-1} * (A_vec - P)
+      // Profit: π_i = (p_i - c_i) * q_i(p) where q_i = Σ_j [M^{-1}]_{ij}*(a_j - p_j)
+      // FOC: q_i - [M^{-1}]_{ii} * (p_i - c_i) = 0
+      // => Σ_j [M^{-1}]_{ij}*(a_j - p_j) = [M^{-1}]_{ii} * (p_i - c_i)
+      // => 2*[M^{-1}]_{ii}*p_i + Σ_{j≠i} [M^{-1}]_{ij}*p_j = Σ_j [M^{-1}]_{ij}*a_j + [M^{-1}]_{ii}*c_i
+
+      // Step 1: Build M matrix
+      const M: number[][] = [];
+      const A_vec: number[] = [];
+      for (let i = 0; i < numFirms; i++) {
+        const fd = firmDemands.find(d => d.firmId === i + 1);
+        const b_i = fd?.slope ?? b;
+        const a_i = fd?.intercept ?? a;
+        A_vec.push(a_i);
+        const row: number[] = [];
+        for (let j = 0; j < numFirms; j++) {
+          row.push(i === j ? b_i : gamma * b_i);
+        }
+        M.push(row);
+      }
+
+      // Step 2: Compute M^{-1} by solving M * x_col = e_col for each column
+      const Minv: number[][] = Array.from({ length: numFirms }, () => new Array(numFirms).fill(0));
+      for (let col = 0; col < numFirms; col++) {
+        const e = new Array(numFirms).fill(0);
+        e[col] = 1;
+        const x = this.solveLinearSystem(M, e);
+        if (!x) {
+          return {
+            competitionMode: 'bertrand', firms: [], totalQuantity: 0,
+            marketPrices: [], avgMarketPrice: 0, totalProfit: 0,
+            calculable: false, message: 'Could not invert demand matrix for per-firm Bertrand',
+          };
+        }
+        for (let row = 0; row < numFirms; row++) {
+          Minv[row][col] = x[row];
+        }
+      }
+
+      // Step 3: Build FOC linear system in prices
+      // 2*Minv[i][i]*p_i + Σ_{j≠i} Minv[i][j]*p_j = Σ_j Minv[i][j]*a_j + Minv[i][i]*c_i
+      const Amat: number[][] = [];
+      const Bvec: number[] = [];
+      for (let i = 0; i < numFirms; i++) {
+        const firmConfig = getFirmConfig(config, i + 1);
+        const c_i = firmConfig.linearCost;
+        let rhs = Minv[i][i] * c_i;
+        for (let j = 0; j < numFirms; j++) {
+          rhs += Minv[i][j] * A_vec[j];
+        }
+        Bvec.push(rhs);
+        const row: number[] = [];
+        for (let j = 0; j < numFirms; j++) {
+          row.push(i === j ? 2 * Minv[i][i] : Minv[i][j]);
+        }
+        Amat.push(row);
+      }
+
+      const priceSolution = this.solveLinearSystem(Amat, Bvec);
+      if (!priceSolution) {
+        return {
+          competitionMode: 'bertrand', firms: [], totalQuantity: 0,
+          marketPrices: [], avgMarketPrice: 0, totalProfit: 0,
+          calculable: false, message: 'Could not solve per-firm Bertrand Nash system',
+        };
+      }
+
+      const eqPrices = priceSolution.map(p => Math.max(0, p));
+
+      // Step 4: Get quantities from Q = M^{-1} * (A_vec - P)
+      const diff = A_vec.map((a_i, i) => a_i - eqPrices[i]);
+      const eqQuantities: number[] = [];
+      for (let i = 0; i < numFirms; i++) {
+        let q_i = 0;
+        for (let j = 0; j < numFirms; j++) {
+          q_i += Minv[i][j] * diff[j];
+        }
+        eqQuantities.push(Math.max(0, q_i));
+      }
+
+      const firms: NPolyEquilibrium['firms'] = [];
+      let totalQuantity = 0;
+      let totalProfit = 0;
+      for (let i = 0; i < numFirms; i++) {
+        const firmConfig = getFirmConfig(config, i + 1);
+        const cost_i = this.calculateCost(eqQuantities[i], firmConfig.linearCost, firmConfig.quadraticCost);
+        const profit_i = eqPrices[i] * eqQuantities[i] - cost_i;
+        totalQuantity += eqQuantities[i];
+        totalProfit += profit_i;
+        firms.push({ firmId: i + 1, quantity: eqQuantities[i], price: eqPrices[i], profit: profit_i });
+      }
+
+      return {
+        competitionMode: 'bertrand',
+        firms,
+        totalQuantity,
+        marketPrices: eqPrices,
+        avgMarketPrice: eqPrices.reduce((s, p) => s + p, 0) / numFirms,
+        totalProfit,
+        calculable: true,
+      };
+    }
+
+    // Shared demand: use simpler symmetric formula
+    const Amat: number[][] = [];
+    const Bvec: number[] = [];
 
     const denom = 1 + (numFirms - 2) * gamma;
 
@@ -761,10 +892,8 @@ export class EconomicsService {
       const firmConfig = getFirmConfig(config, i + 1);
       const c_i = firmConfig.linearCost;
 
-      // RHS: a(1-γ) + c_i*(1+(n-2)γ)
-      B.push(a * (1 - gamma) + c_i * denom);
+      Bvec.push(a * (1 - gamma) + c_i * denom);
 
-      // Build row
       const row: number[] = [];
       for (let j = 0; j < numFirms; j++) {
         if (i === j) {
@@ -773,19 +902,17 @@ export class EconomicsService {
           row.push(-gamma);
         }
       }
-      A.push(row);
+      Amat.push(row);
     }
 
-    const solution = this.solveLinearSystem(A, B);
+    const solution = this.solveLinearSystem(Amat, Bvec);
 
     if (!solution) {
       throw new Error('Could not solve N-firm Bertrand equilibrium system');
     }
 
-    // Prices
     const prices = solution.map(p => Math.max(0, p));
 
-    // Calculate quantities from prices using direct demand
     const firms: NPolyEquilibrium['firms'] = [];
     let totalQuantity = 0;
     let totalProfit = 0;
@@ -793,15 +920,13 @@ export class EconomicsService {
     for (let i = 0; i < numFirms; i++) {
       const p_i = prices[i];
 
-      // Direct demand — Singh & Vives (1984) for n firms, linear demand:
-      // q_i = [a*(1-γ) - p_i*(1+(n-2)γ) + γ*Σ_{j≠i} p_j] / [b*(1-γ)*(1+(n-1)γ)]
       let otherPricesSum = 0;
       for (let j = 0; j < numFirms; j++) {
         if (j !== i) otherPricesSum += prices[j];
       }
 
-      const kappa = 1 + (numFirms - 2) * gamma;           // 1+(n-2)γ
-      const demandDenominator = b * (1 - gamma) * (1 + (numFirms - 1) * gamma); // b*(1-γ)*(1+(n-1)γ)
+      const kappa = 1 + (numFirms - 2) * gamma;
+      const demandDenominator = b * (1 - gamma) * (1 + (numFirms - 1) * gamma);
       const q_i = demandDenominator > 1e-10
         ? Math.max(0, (a * (1 - gamma) - p_i * kappa + gamma * otherPricesSum) / demandDenominator)
         : 0;
@@ -906,13 +1031,16 @@ export class EconomicsService {
   /**
    * Calculate N-poly equilibrium based on competition mode
    */
-  static calculateNPolyEquilibrium(config: CournotConfig): NPolyEquilibrium {
+  static calculateNPolyEquilibrium(
+    config: CournotConfig,
+    firmDemands?: { firmId: number; intercept?: number; slope?: number }[]
+  ): NPolyEquilibrium {
     const mode = getCompetitionMode(config);
 
     if (mode === 'bertrand') {
-      return this.calculateNashBertrandNFirms(config);
+      return this.calculateNashBertrandNFirms(config, firmDemands);
     } else {
-      return this.calculateNashCournotNFirms(config);
+      return this.calculateNashCournotNFirms(config, firmDemands);
     }
   }
 
@@ -976,52 +1104,56 @@ export class EconomicsService {
       let q_i: number;
       let p_i: number;
 
+      // Get firm-specific demand (per-firm or shared fallback)
+      const firmDemand = realizedParams ? getFirmDemand(realizedParams, i + 1) : demand;
+
       if (mode === 'cournot') {
         q_i = quantities[i];
-        // Use demand-aware price calculation
-        p_i = this.calculateDifferentiatedPriceWithDemand(i, quantities, demand, gamma);
+        // Use demand-aware price calculation with firm-specific demand
+        p_i = this.calculateDifferentiatedPriceWithDemand(i, quantities, firmDemand, gamma);
       } else {
         // Bertrand: price is the decision, calculate quantity from demand
         p_i = prices[i] ?? linearCost;  // Default to MC if no price
 
-        // Calculate quantity from demand function with differentiation
-        let otherPricesSum = 0;
-        for (let j = 0; j < numFirms; j++) {
-          if (j !== i) otherPricesSum += (prices[j] ?? p_i);
-        }
-
         // Calculate quantity based on demand type
-        if (demand.type === 'linear') {
-          const a = demand.intercept ?? config.demandIntercept;
-          const b = demand.slope ?? config.demandSlope;
+        if (firmDemand.type === 'linear') {
+          const a_i = firmDemand.intercept ?? config.demandIntercept;
+          const b_i = firmDemand.slope ?? config.demandSlope;
 
           if (gamma >= 0.9999) {
             // Homogeneous Bertrand (γ≈1): lowest-price firm(s) get all demand
-            // Singh & Vives formula has zero denominator when γ=1
             const minPrice = Math.min(...prices.filter((p): p is number => p != null));
             if (Math.abs(p_i - minPrice) < 1e-6) {
-              // Count firms tied at the minimum price
               const numTied = prices.filter((p): p is number => p != null && Math.abs(p - minPrice) < 1e-6).length;
-              const totalQ = Math.max(0, (a - minPrice) / b);
+              const totalQ = Math.max(0, (a_i - minPrice) / b_i);
               q_i = totalQ / numTied;
             } else {
-              q_i = 0;  // Higher-priced firms get zero demand
+              q_i = 0;
             }
+          } else if (realizedParams?.firmDemands) {
+            // Per-firm demand with different b_i: use matrix inversion
+            // Inverse demand: p_i = a_i - b_i*(q_i + γ*Σq_j)
+            // => M*Q = A_vec - P where M[i][i]=b_i, M[i][j]=γ*b_i
+            // Solve on last firm iteration (i === numFirms - 1) for all at once
+            // For now set to 0, will be overwritten below
+            q_i = 0;
           } else {
-            // Singh & Vives (1984) direct demand for n firms:
-            // q_i = [a*(1-γ) - p_i*(1+(n-2)γ) + γ*Σ_{j≠i} p_j] / [b*(1-γ)*(1+(n-1)γ)]
-            const kappa = 1 + (numFirms - 2) * gamma;           // 1+(n-2)γ
-            const demandDenominator = b * (1 - gamma) * (1 + (numFirms - 1) * gamma);
+            // Shared demand: use Singh & Vives closed-form
+            let otherPricesSum = 0;
+            for (let j = 0; j < numFirms; j++) {
+              if (j !== i) otherPricesSum += (prices[j] ?? p_i);
+            }
+            const kappa = 1 + (numFirms - 2) * gamma;
+            const demandDenominator = b_i * (1 - gamma) * (1 + (numFirms - 1) * gamma);
             q_i = demandDenominator > 1e-10
-              ? Math.max(0, (a * (1 - gamma) - p_i * kappa + gamma * otherPricesSum) / demandDenominator)
+              ? Math.max(0, (a_i * (1 - gamma) - p_i * kappa + gamma * otherPricesSum) / demandDenominator)
               : 0;
           }
         } else {
-          // CES: P = A * Q^(-1/σ), so Q = (P/A)^(-σ)
-          const A = demand.scale ?? 100;
-          const sigma = demand.substitutionElasticity ?? 2;
-          // Approximate demand for Bertrand with CES demand
-          q_i = Math.max(0, Math.pow(p_i / A, -sigma));
+          // Non-linear: use firm-specific params for approximate demand
+          const firmScale = firmDemand.scale ?? 100;
+          const firmSigma = firmDemand.substitutionElasticity ?? 2;
+          q_i = Math.max(0, Math.pow(p_i / firmScale, -firmSigma));
         }
       }
 
@@ -1040,6 +1172,44 @@ export class EconomicsService {
         systemPrompt: decision?.systemPrompt,
         roundPrompt: decision?.roundPrompt,
       });
+    }
+
+    // For Bertrand with per-firm linear demand: solve quantities via matrix inversion
+    if (mode === 'bertrand' && realizedParams?.firmDemands && demand.type === 'linear' && gamma < 0.9999) {
+      // Build M matrix: M[i][i] = b_i, M[i][j] = γ*b_i
+      // Solve: M*Q = A_vec - P
+      const M: number[][] = [];
+      const rhs: number[] = [];
+      for (let i = 0; i < numFirms; i++) {
+        const fd = getFirmDemand(realizedParams, i + 1);
+        const a_i = fd.intercept ?? config.demandIntercept;
+        const b_i = fd.slope ?? config.demandSlope;
+        rhs.push(a_i - (firmResults[i]?.price ?? prices[i] ?? 0));
+        const row: number[] = [];
+        for (let j = 0; j < numFirms; j++) {
+          row.push(i === j ? b_i : gamma * b_i);
+        }
+        M.push(row);
+      }
+      const qSolution = this.solveLinearSystem(M, rhs);
+      if (qSolution) {
+        totalQuantity = 0;
+        for (let i = 0; i < numFirms; i++) {
+          const q_solved = Math.max(0, qSolution[i]);
+          const p_solved = firmResults[i].price ?? marketPrices[i];
+          const realizedCost = realizedParams?.firmCosts?.find(c => c.firmId === i + 1);
+          const configFirm = getFirmConfig(config, i + 1);
+          const lc = realizedCost?.linearCost ?? configFirm.linearCost;
+          const qc = realizedCost?.quadraticCost ?? configFirm.quadraticCost;
+          const cost = this.calculateCost(q_solved, lc, qc);
+          firmResults[i] = {
+            ...firmResults[i],
+            quantity: q_solved,
+            profit: p_solved * q_solved - cost,
+          };
+          totalQuantity += q_solved;
+        }
+      }
     }
 
     // Build legacy-compatible result (for duopoly)

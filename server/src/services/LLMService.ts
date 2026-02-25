@@ -10,6 +10,7 @@ import {
   getGamma,
   getCompetitionMode,
   getFirmConfig,
+  getFirmDemand,
 } from '../types';
 import { logger } from '../config/logger';
 
@@ -153,14 +154,27 @@ export class LLMService {
     const rivalLinearCost = rivalCostData?.linearCost ?? rivalConfig?.linearCost ?? 0;
     const rivalQuadraticCost = rivalCostData?.quadraticCost ?? rivalConfig?.quadraticCost ?? 0;
 
-    // Get demand parameters
+    // Get demand parameters (shared or per-firm)
     const demandType = realizedParams?.demand?.type || config.demandFunction?.type || 'linear';
-    const demandIntercept = realizedParams?.demand?.intercept ?? config.demandIntercept;
-    const demandSlope = realizedParams?.demand?.slope ?? config.demandSlope;
-    const demandScale = realizedParams?.demand?.scale ?? 100;
-    const demandSubstitutionElasticity = realizedParams?.demand?.substitutionElasticity ?? 2;
-    const demandPriceCoefficient = realizedParams?.demand?.priceCoefficient ?? 10;
-    const demandDecayRate = realizedParams?.demand?.decayRate ?? 0.01;
+    let demandIntercept = realizedParams?.demand?.intercept ?? config.demandIntercept;
+    let demandSlope = realizedParams?.demand?.slope ?? config.demandSlope;
+    let demandScale = realizedParams?.demand?.scale ?? 100;
+    let demandSubstitutionElasticity = realizedParams?.demand?.substitutionElasticity ?? 2;
+    let demandPriceCoefficient = realizedParams?.demand?.priceCoefficient ?? 10;
+    let demandDecayRate = realizedParams?.demand?.decayRate ?? 0.01;
+
+    // Override with per-firm demand if available
+    if (realizedParams) {
+      const firmDemand = getFirmDemand(realizedParams, firmNumber);
+      if (realizedParams.firmDemands) {
+        demandIntercept = firmDemand.intercept ?? demandIntercept;
+        demandSlope = firmDemand.slope ?? demandSlope;
+        demandScale = firmDemand.scale ?? demandScale;
+        demandSubstitutionElasticity = firmDemand.substitutionElasticity ?? demandSubstitutionElasticity;
+        demandPriceCoefficient = firmDemand.priceCoefficient ?? demandPriceCoefficient;
+        demandDecayRate = firmDemand.decayRate ?? demandDecayRate;
+      }
+    }
 
     // Use custom prompt if provided
     if (config.customSystemPrompt) {

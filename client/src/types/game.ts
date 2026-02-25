@@ -73,6 +73,15 @@ export interface RealizedParameters {
     linearCost: number;
     quadraticCost: number;
   }[];
+  firmDemands?: {
+    firmId: number;
+    intercept?: number;
+    slope?: number;
+    scale?: number;
+    substitutionElasticity?: number;
+    priceCoefficient?: number;
+    decayRate?: number;
+  }[];
 }
 
 // When to regenerate random parameters
@@ -82,6 +91,16 @@ export type ParameterVariation = 'fixed' | 'per-replication' | 'per-round';
 export interface FirmCostSpec {
   linearCost: ParameterSpec;
   quadraticCost: ParameterSpec;
+}
+
+// Per-firm demand specifications for heterogeneous demand parameters
+export interface FirmDemandSpec {
+  intercept?: ParameterSpec;
+  slope?: ParameterSpec;
+  scale?: ParameterSpec;
+  substitutionElasticity?: ParameterSpec;
+  priceCoefficient?: ParameterSpec;
+  decayRate?: ParameterSpec;
 }
 
 // Helper to create a fixed parameter spec
@@ -160,6 +179,10 @@ export interface CournotConfig {
   gammaSpec?: ParameterSpec;
   firmCostSpecs?: FirmCostSpec[];
   parameterVariation?: ParameterVariation;
+
+  // Per-firm demand parameters (advanced option)
+  usePerFirmDemand?: boolean;
+  firmDemandSpecs?: FirmDemandSpec[];
 }
 
 // Communication message between firms
@@ -419,6 +442,20 @@ export function getNumFirms(config: CournotConfig): number {
 // Helper function to get gamma from config
 export function getGamma(config: CournotConfig): number {
   return config.gamma ?? 1;
+}
+
+// Get firm-specific demand from realized params (or shared demand as fallback)
+export function getFirmDemand(
+  realizedParams: RealizedParameters,
+  firmId: number
+): RealizedParameters['demand'] {
+  if (realizedParams.firmDemands) {
+    const fd = realizedParams.firmDemands.find(d => d.firmId === firmId);
+    if (fd) {
+      return { type: realizedParams.demand.type, ...fd };
+    }
+  }
+  return realizedParams.demand;
 }
 
 // Helper function to get competition mode from config

@@ -17,7 +17,9 @@ import {
   createDefaultFirms,
   getDemandFunctionType,
   fixedParam,
+  CournotConfig,
   FirmConfig,
+  FirmDemandSpec,
   DemandFunctionType,
 } from '../types/game';
 import { AdvancedSettings } from './AdvancedSettings';
@@ -34,47 +36,49 @@ export function HomePage() {
 
   // Handle demand function type change
   const handleDemandTypeChange = (newType: DemandFunctionType) => {
+    const updates: Partial<CournotConfig> = {};
+    let defaultSpec: FirmDemandSpec = {};
+
     switch (newType) {
       case 'linear':
-        setConfig({
-          demandFunction: {
-            type: 'linear',
-            intercept: fixedParam(config.demandIntercept),
-            slope: fixedParam(config.demandSlope),
-          },
-        });
+        updates.demandFunction = {
+          type: 'linear',
+          intercept: fixedParam(config.demandIntercept),
+          slope: fixedParam(config.demandSlope),
+        };
+        defaultSpec = { intercept: fixedParam(config.demandIntercept), slope: fixedParam(config.demandSlope) };
         break;
       case 'ces':
-        // P = A * Q^(-1/σ), default A=100, σ=2
-        setConfig({
-          demandFunction: {
-            type: 'ces',
-            scale: fixedParam(100),
-            substitutionElasticity: fixedParam(2),
-          },
-        });
+        updates.demandFunction = {
+          type: 'ces',
+          scale: fixedParam(100),
+          substitutionElasticity: fixedParam(2),
+        };
+        defaultSpec = { scale: fixedParam(100), substitutionElasticity: fixedParam(2) };
         break;
       case 'logit':
-        // P = a - b * ln(Q), default a=100, b=10
-        setConfig({
-          demandFunction: {
-            type: 'logit',
-            intercept: fixedParam(100),
-            priceCoefficient: fixedParam(10),
-          },
-        });
+        updates.demandFunction = {
+          type: 'logit',
+          intercept: fixedParam(100),
+          priceCoefficient: fixedParam(10),
+        };
+        defaultSpec = { intercept: fixedParam(100), priceCoefficient: fixedParam(10) };
         break;
       case 'exponential':
-        // P = A * e^(-bQ), default A=100, b=0.01
-        setConfig({
-          demandFunction: {
-            type: 'exponential',
-            scale: fixedParam(100),
-            decayRate: fixedParam(0.01),
-          },
-        });
+        updates.demandFunction = {
+          type: 'exponential',
+          scale: fixedParam(100),
+          decayRate: fixedParam(0.01),
+        };
+        defaultSpec = { scale: fixedParam(100), decayRate: fixedParam(0.01) };
         break;
     }
+
+    if (config.usePerFirmDemand) {
+      updates.firmDemandSpecs = Array.from({ length: numFirms }, () => ({ ...defaultSpec }));
+    }
+
+    setConfig(updates);
   };
 
   // Get CES parameters from config
@@ -101,6 +105,55 @@ export function HomePage() {
     ? (config.demandFunction.decayRate.value ?? 0.01)
     : 0.01;
 
+  // Helper: get default FirmDemandSpec for current demand type
+  const getDefaultFirmDemandSpec = (): FirmDemandSpec => {
+    switch (demandFunctionType) {
+      case 'linear':
+        return { intercept: fixedParam(config.demandIntercept), slope: fixedParam(config.demandSlope) };
+      case 'ces':
+        return { scale: fixedParam(cesScale), substitutionElasticity: fixedParam(cesSubstitutionElasticity) };
+      case 'logit':
+        return { intercept: fixedParam(logitIntercept), priceCoefficient: fixedParam(logitPriceCoefficient) };
+      case 'exponential':
+        return { scale: fixedParam(exponentialScale), decayRate: fixedParam(exponentialDecayRate) };
+      default:
+        return { intercept: fixedParam(config.demandIntercept), slope: fixedParam(config.demandSlope) };
+    }
+  };
+
+  // Get firm demand parameter value for display in firm cards
+  const getFirmDemandParamValue = (firmIndex: number, param: keyof FirmDemandSpec, fallback: number): number => {
+    const spec = config.firmDemandSpecs?.[firmIndex]?.[param];
+    if (!spec) return fallback;
+    return spec.value ?? spec.mean ?? fallback;
+  };
+
+  // Handle per-firm demand toggle
+  const handlePerFirmDemandToggle = (enabled: boolean) => {
+    if (enabled) {
+      const specs: FirmDemandSpec[] = [];
+      for (let i = 0; i < numFirms; i++) {
+        specs.push(getDefaultFirmDemandSpec());
+      }
+      setConfig({ usePerFirmDemand: true, firmDemandSpecs: specs });
+    } else {
+      setConfig({ usePerFirmDemand: false, firmDemandSpecs: undefined });
+    }
+  };
+
+  // Handle firm demand parameter change (from firm card inputs)
+  const handleFirmDemandChange = (firmIndex: number, param: keyof FirmDemandSpec, value: number) => {
+    const newSpecs = [...(config.firmDemandSpecs ?? [])];
+    while (newSpecs.length <= firmIndex) {
+      newSpecs.push(getDefaultFirmDemandSpec());
+    }
+    newSpecs[firmIndex] = {
+      ...newSpecs[firmIndex],
+      [param]: fixedParam(value),
+    };
+    setConfig({ firmDemandSpecs: newSpecs });
+  };
+
   // Legacy equilibrium (for duopoly backward compatibility)
   const cooperativeEquilibrium = useMemo(() => calculateCooperativeEquilibrium(config), [config]);
 
@@ -118,7 +171,18 @@ export function HomePage() {
   // Handle number of firms change
   const handleNumFirmsChange = (newNumFirms: number) => {
     const firms = createDefaultFirms(newNumFirms, config);
-    setConfig({ numFirms: newNumFirms, firms });
+    const updates: Partial<CournotConfig> = { numFirms: newNumFirms, firms };
+
+    if (config.usePerFirmDemand) {
+      const currentSpecs = config.firmDemandSpecs ?? [];
+      const newSpecs: FirmDemandSpec[] = [];
+      for (let i = 0; i < newNumFirms; i++) {
+        newSpecs.push(currentSpecs[i] ?? getDefaultFirmDemandSpec());
+      }
+      updates.firmDemandSpecs = newSpecs;
+    }
+
+    setConfig(updates);
   };
 
   // Handle individual firm config change
@@ -406,6 +470,23 @@ export function HomePage() {
             {demandFunctionType === 'exponential' && 'P(Q) = A × e^(-bQ)'}
           </p>
 
+          {/* Per-Firm Demand Toggle */}
+          <label className="flex items-center gap-2 mb-3">
+            <input
+              type="checkbox"
+              checked={config.usePerFirmDemand || false}
+              onChange={(e) => handlePerFirmDemandToggle(e.target.checked)}
+              disabled={isRunning}
+              className="rounded"
+            />
+            <span className="text-sm font-medium">Per-firm demand parameters</span>
+          </label>
+          {config.usePerFirmDemand && (
+            <p className="text-xs text-gray-500 mb-3 -mt-1">
+              Each firm has its own demand parameters. Edit in firm cards below.
+            </p>
+          )}
+
           <div className="space-y-4">
             {/* Linear Demand Inputs */}
             {demandFunctionType === 'linear' && (
@@ -679,6 +760,115 @@ export function HomePage() {
                       disabled={isRunning}
                     />
                   </div>
+                  {/* Per-firm demand parameters (when enabled) */}
+                  {config.usePerFirmDemand && (
+                    <div className="border-t pt-2 mt-2">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Demand</p>
+                      {demandFunctionType === 'linear' && (
+                        <>
+                          <div>
+                            <label className="block text-xs font-medium mb-1">Intercept (a)</label>
+                            <input
+                              type="number"
+                              value={getFirmDemandParamValue(i, 'intercept', config.demandIntercept)}
+                              onChange={(e) => handleFirmDemandChange(i, 'intercept', parseFloat(e.target.value) || 0)}
+                              className="w-full px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              disabled={isRunning}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium mb-1">Slope (b)</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={getFirmDemandParamValue(i, 'slope', config.demandSlope)}
+                              onChange={(e) => handleFirmDemandChange(i, 'slope', parseFloat(e.target.value) || 0)}
+                              className="w-full px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              disabled={isRunning}
+                            />
+                          </div>
+                        </>
+                      )}
+                      {demandFunctionType === 'ces' && (
+                        <>
+                          <div>
+                            <label className="block text-xs font-medium mb-1">Scale (A)</label>
+                            <input
+                              type="number"
+                              value={getFirmDemandParamValue(i, 'scale', cesScale)}
+                              onChange={(e) => handleFirmDemandChange(i, 'scale', parseFloat(e.target.value) || 100)}
+                              className="w-full px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              disabled={isRunning}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium mb-1">Elast. (σ)</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0.1"
+                              value={getFirmDemandParamValue(i, 'substitutionElasticity', cesSubstitutionElasticity)}
+                              onChange={(e) => handleFirmDemandChange(i, 'substitutionElasticity', Math.max(0.1, parseFloat(e.target.value) || 2))}
+                              className="w-full px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              disabled={isRunning}
+                            />
+                          </div>
+                        </>
+                      )}
+                      {demandFunctionType === 'logit' && (
+                        <>
+                          <div>
+                            <label className="block text-xs font-medium mb-1">Intercept (a)</label>
+                            <input
+                              type="number"
+                              value={getFirmDemandParamValue(i, 'intercept', logitIntercept)}
+                              onChange={(e) => handleFirmDemandChange(i, 'intercept', parseFloat(e.target.value) || 100)}
+                              className="w-full px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              disabled={isRunning}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium mb-1">Price Coeff. (b)</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0.1"
+                              value={getFirmDemandParamValue(i, 'priceCoefficient', logitPriceCoefficient)}
+                              onChange={(e) => handleFirmDemandChange(i, 'priceCoefficient', Math.max(0.1, parseFloat(e.target.value) || 10))}
+                              className="w-full px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              disabled={isRunning}
+                            />
+                          </div>
+                        </>
+                      )}
+                      {demandFunctionType === 'exponential' && (
+                        <>
+                          <div>
+                            <label className="block text-xs font-medium mb-1">Scale (A)</label>
+                            <input
+                              type="number"
+                              value={getFirmDemandParamValue(i, 'scale', exponentialScale)}
+                              onChange={(e) => handleFirmDemandChange(i, 'scale', parseFloat(e.target.value) || 100)}
+                              className="w-full px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              disabled={isRunning}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium mb-1">Decay (b)</label>
+                            <input
+                              type="number"
+                              step="0.001"
+                              min="0.001"
+                              value={getFirmDemandParamValue(i, 'decayRate', exponentialDecayRate)}
+                              onChange={(e) => handleFirmDemandChange(i, 'decayRate', Math.max(0.001, parseFloat(e.target.value) || 0.01))}
+                              className="w-full px-2 py-1 border rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              disabled={isRunning}
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-medium mb-1">LLM Model</label>
                     <select
